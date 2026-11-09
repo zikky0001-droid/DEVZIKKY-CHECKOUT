@@ -2,7 +2,7 @@
   "version": 2,
   "functions": {
     "api/[...path].js": {
-      "maxDuration": 30
+      "maxDuration": 60
     }
   },
   "headers": [
@@ -26,6 +26,16 @@
           "value": "camera=(), microphone=(), geolocation=()"
         }
       ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/ping",
+      "destination": "/api/ping"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/health"
     }
   ]
 }
