@@ -30,7 +30,7 @@ function sendJson(res, status, data, requestId) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "no-store, max-age=0");
   if (requestId) res.setHeader("X-Request-ID", requestId);
-  res.end(JSON.stringify(data));
+  res.end(JSON.stringify(data, null, 2));
 }
 
 async function readBody(req) {
@@ -657,8 +657,7 @@ export default async function handler(req, res) {
         ok: true,
         status: "alive",
         service: SERVICE,
-        timestamp: new Date().toISOString(),
-        uptime_seconds: Math.floor(process.uptime())
+        timestamp: new Date().toISOString()
       }, requestId);
     }
 
@@ -674,24 +673,32 @@ export default async function handler(req, res) {
 
     if ((path === "rates" || path === "rate") && req.method === "GET") {
       const result = await getRates(db, log);
-      const supportedCurrencies = CURRENCIES
-        .filter(currency => Number.isFinite(Number(result.ngn_per_unit[currency.code])) &&
-          Number(result.ngn_per_unit[currency.code]) > 0)
-        .map(currency => currency.code);
 
-      return sendJson(res, 200, {
+      // Public API contract: expose provider-direction rates only, sorted by code.
+      // NGN is the base currency and is therefore represented by `base`, not
+      // duplicated inside `rates`. The inverse map remains server-side for checkout.
+      const sortedRates = Object.fromEntries(
+        Object.entries(result.rates)
+          .filter(([code, value]) =>
+            code !== "NGN" && Number.isFinite(Number(value)) && Number(value) > 0
+          )
+          .sort(([codeA], [codeB]) => codeA.localeCompare(codeB))
+      );
+
+      const payload = {
         base: "NGN",
-        date: result.rateDate,
         source: result.source,
-        // Exact values from the provider: units of foreign currency per ₦1.
-        rates: result.rates,
-        rate_direction: "foreign_currency_units_per_1_NGN",
-        // Derived values used by checkout: NGN per one unit of foreign currency.
-        ngn_per_unit: result.ngn_per_unit,
-        ngn_per_unit_direction: "NGN_per_1_foreign_currency_unit",
-        supported_currencies: supportedCurrencies,
-        missing: result.missing || []
-      }, requestId);
+        ...(result.source === "live" ? {} : { date: result.rateDate }),
+        rates: sortedRates
+      };
+
+      log("info", "rates.response.completed", {
+        source: result.source,
+        currency_count: Object.keys(sortedRates).length,
+        includes_snapshot_date: result.source !== "live"
+      });
+
+      return sendJson(res, 200, payload, requestId);
     }
 
     if (path === "webhook" && req.method === "POST") {

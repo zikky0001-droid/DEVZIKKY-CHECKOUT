@@ -100,9 +100,9 @@ async function checkoutPage() {
   try {
     rateData = await loadRates();
 
-    const available = Array.isArray(rateData.supported_currencies)
-      ? rateData.supported_currencies
-      : Object.keys(rateData.ngn_per_unit || {});
+    const available = ["NGN", ...Object.keys(rateData.rates || {})]
+      .filter((code, index, list) => list.indexOf(code) === index)
+      .sort((a, b) => a === "NGN" ? -1 : b === "NGN" ? 1 : a.localeCompare(b));
 
     currencySelect.innerHTML = available
       .map(code => `<option value="${escapeHtml(code)}">${escapeHtml(code)}</option>`)
@@ -110,8 +110,8 @@ async function checkoutPage() {
 
     console.info("[DEVZIKKY PAY] Checkout currencies loaded", {
       count: available.length,
-      rateDate: rateData.date,
-      source: rateData.source
+      source: rateData.source,
+      ...(rateData.date ? { fallbackDate: rateData.date } : {})
     });
   } catch (error) {
     $("#message").textContent = `Exchange rates unavailable: ${error.message}`;
@@ -124,8 +124,9 @@ async function checkoutPage() {
   const updateEstimate = () => {
     const code = currencySelect.value;
     const amount = Number(form.elements.amount.value);
-    const ngnRate = Number(rateData.ngn_per_unit?.[code]);
-    const providerRate = Number(rateData.rates?.[code]);
+    const providerRate = code === "NGN" ? 1 : Number(rateData.rates?.[code]);
+    const ngnRate = code === "NGN" ? 1 :
+      (Number.isFinite(providerRate) && providerRate > 0 ? 1 / providerRate : NaN);
 
     $("#currencyHint").textContent = code;
 
@@ -134,11 +135,13 @@ async function checkoutPage() {
       const providerLine = code === "NGN"
         ? "NGN is the base currency"
         : `Provider rate: ₦1 = ${providerRate} ${code}`;
+      const fallbackDate = rateData.date ? ` · Snapshot date: ${rateData.date}` : "";
       estimate.textContent =
         `Estimated Paystack charge: ${money(estimateNgn, "NGN")} · ` +
-        `${providerLine} · Rate date: ${rateData.date} · ${rateData.source}`;
+        `${providerLine} · ${rateData.source}${fallbackDate}`;
     } else {
-      estimate.textContent = `Rate date: ${rateData.date} · Source: ${rateData.source}`;
+      const fallbackDate = rateData.date ? ` · Snapshot date: ${rateData.date}` : "";
+      estimate.textContent = `Rate source: ${rateData.source}${fallbackDate}`;
     }
   };
 
@@ -162,7 +165,7 @@ async function checkoutPage() {
       console.info("[DEVZIKKY PAY] Redirecting to Paystack", {
         reference: result.reference,
         originalCurrency: result.original_currency,
-        rateDate: result.rate_date
+        ...(result.rate_date ? { fallbackDate: result.rate_date } : {})
       });
       window.location.assign(result.authorization_url);
     } catch (error) {
