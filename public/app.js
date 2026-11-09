@@ -37,6 +37,7 @@ async function api(path, options = {}) {
   }
 
   const requestId = response.headers.get("x-request-id");
+  const contentType = response.headers.get("content-type") || "";
   const responseText = await response.text();
   let data = {};
   let nonJson = false;
@@ -46,9 +47,11 @@ async function api(path, options = {}) {
   } catch {
     nonJson = true;
     data = {
-      error: responseText
-        ? `The server returned a non-JSON response (HTTP ${response.status}).`
-        : `The server returned an empty response (HTTP ${response.status}).`
+      error: response.status === 404
+        ? "The API route was not found by the host (HTTP 404). The admin route may be missing from this deployment."
+        : responseText
+          ? `The server returned a non-JSON response (HTTP ${response.status}).`
+          : `The server returned an empty response (HTTP ${response.status}).`
     };
   }
 
@@ -64,6 +67,9 @@ async function api(path, options = {}) {
   } else if (response.status >= 500 || nonJson) {
     console.error("[DEVZIKKY PAY] API request failed", {
       ...logDetails,
+      contentType,
+      nonJson,
+      ...(nonJson && responseText ? { responsePreview: responseText.slice(0, 240).replace(/\s+/g, " ") } : {}),
       error: data.error || "Unexpected server response"
     });
   } else {
@@ -256,6 +262,16 @@ function escapeHtml(value) {
 async function adminPage() {
   const loginForm = $("#loginForm");
   if (!loginForm) return;
+
+  const adminKeyInput = loginForm.elements.key;
+  const toggleAdminKey = $("#toggleAdminKey");
+  toggleAdminKey?.addEventListener("click", () => {
+    const reveal = adminKeyInput.type === "password";
+    adminKeyInput.type = reveal ? "text" : "password";
+    toggleAdminKey.textContent = reveal ? "Hide" : "Show";
+    toggleAdminKey.setAttribute("aria-pressed", String(reveal));
+    toggleAdminKey.setAttribute("aria-label", reveal ? "Hide admin key" : "Show admin key");
+  });
 
   loginForm.addEventListener("submit", async event => {
     event.preventDefault();

@@ -666,6 +666,44 @@ export default async function handler(req, res) {
       return await healthCheck(requestId, res, log);
     }
 
+    // Admin authentication does not need PostgreSQL. Handle it before creating
+    // a database client so the administrator can still sign in during a DB outage.
+    if (path === "admin/login" && req.method === "POST") {
+      const body = await readBody(req);
+      const supplied = typeof body.key === "string" ? body.key : "";
+      const expected = process.env.ADMIN_KEY || "";
+
+      if (!expected) {
+        log("error", "admin.login.configuration_error", {
+          missing_environment_variable: "ADMIN_KEY"
+        });
+        return sendJson(res, 503, { error: "Admin login is not configured" }, requestId);
+      }
+
+      if (!safeEqual(supplied, expected)) {
+        log("warn", "admin.login.failed", { reason: "invalid_key" });
+        return sendJson(res, 401, { error: "Invalid admin key" }, requestId);
+      }
+
+      const token = createAdminSession();
+      res.setHeader(
+        "Set-Cookie",
+        `dz_admin=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=28800`
+      );
+
+      log("info", "admin.login.succeeded");
+      return sendJson(res, 200, { ok: true, message: "Admin session created" }, requestId);
+    }
+
+    if (path === "admin/logout" && req.method === "POST") {
+      res.setHeader(
+        "Set-Cookie",
+        "dz_admin=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0"
+      );
+      log("info", "admin.logout");
+      return sendJson(res, 200, { ok: true }, requestId);
+    }
+
     const db = getSql();
 
     // Maintenance is best-effort and never blocks unrelated API work.
@@ -843,42 +881,6 @@ export default async function handler(req, res) {
         by_type: byType,
         recent
       }, requestId);
-    }
-
-    if (path === "admin/login" && req.method === "POST") {
-      const body = await readBody(req);
-      const supplied = typeof body.key === "string" ? body.key : "";
-      const expected = process.env.ADMIN_KEY || "";
-
-      if (!expected) {
-        log("error", "admin.login.configuration_error", {
-          missing_environment_variable: "ADMIN_KEY"
-        });
-        return sendJson(res, 503, { error: "Admin login is not configured" }, requestId);
-      }
-
-      if (!safeEqual(supplied, expected)) {
-        log("warn", "admin.login.failed", { reason: "invalid_key" });
-        return sendJson(res, 401, { error: "Invalid admin key" }, requestId);
-      }
-
-      const token = createAdminSession();
-      res.setHeader(
-        "Set-Cookie",
-        `dz_admin=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=28800`
-      );
-
-      log("info", "admin.login.succeeded");
-      return sendJson(res, 200, { ok: true, message: "Admin session created" }, requestId);
-    }
-
-    if (path === "admin/logout" && req.method === "POST") {
-      res.setHeader(
-        "Set-Cookie",
-        "dz_admin=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0"
-      );
-      log("info", "admin.logout");
-      return sendJson(res, 200, { ok: true }, requestId);
     }
 
     if (path.startsWith("admin/")) {

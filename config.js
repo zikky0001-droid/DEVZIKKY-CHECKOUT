@@ -1,5 +1,5 @@
 // DEVZIKKY PAY — server-side application configuration.
-// This file must NEVER be imported by browser code or placed inside /public
+// This file must NEVER be imported by browser code or placed inside /public.
 
 export const APP_CONFIG = {
   API_EMAIL: "zikkystar0001@gmail.com",
@@ -9,7 +9,6 @@ export const APP_CONFIG = {
   RATE_MAX_AGE_DAYS: 5,
   RATE_REFRESH_MINUTES: 60,
   RATE_TIMEOUT_MS: 15000,
-  
   // Reference backup supplied by the project owner.
   // Backup rates are available for the original 33 currencies only.
   STATIC_BACKUP_DATE: "2026-11-09",
