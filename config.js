@@ -9,7 +9,7 @@ export const APP_CONFIG = {
   RATE_MAX_AGE_DAYS: 5,
   RATE_REFRESH_MINUTES: 60,
   RATE_TIMEOUT_MS: 15000,
-  // Reference backup supplied by the project owner.
+  // Reference backup supplied by the project owner 
   // Backup rates are available for the original 33 currencies only.
   STATIC_BACKUP_DATE: "2026-11-09",
 STATIC_BACKUP_NGN_PER_UNIT: {
