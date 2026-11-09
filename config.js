@@ -1,6 +1,6 @@
 // DEVZIKKY PAY — server-side application configuration.
-// This file must NEVER be imported by browser code or placed inside /public 
-.
+// This file must NEVER be imported by browser code or placed inside /public
+
 export const APP_CONFIG = {
   API_EMAIL: "zikkystar0001@gmail.com",
   DEFAULT_CURRENCY: "NGN",
