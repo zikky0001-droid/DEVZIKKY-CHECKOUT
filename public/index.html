@@ -1,1 +1,13 @@
-
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Secure payments and contributions powered by DEVZIKKY PAY."><title>DEVZIKKY PAY — Checkout</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"></head>
+<body><header class="topbar"><a class="brand" href="/">DEVZIKKY<span> PAY</span></a><nav><a href="/statistics.html">Statistics</a><a href="/api.html">API docs</a><a href="/admin.html">Admin</a></nav></header>
+<main class="shell"><section class="hero"><p class="eyebrow">SIMPLE · SECURE · TRANSPARENT</p><h1>Make a payment.<br><span>Make an impact.</span></h1><p class="muted">Support a project, make a contribution, or pay for a service using your preferred display currency.</p></section>
+<section class="panel checkout"><div class="panel-head"><div><p class="eyebrow">CHECKOUT</p><h2>Payment details</h2></div><span class="secure">● Secure checkout</span></div>
+<form id="checkoutForm"><div class="grid two"><label>Your name<input name="name" maxlength="100" placeholder="Your name" required></label><label>Email address<input name="email" type="email" maxlength="254" placeholder="you@example.com" required></label></div>
+<div class="grid two"><label>Payment type<select name="type"><option value="donation">Donation</option><option value="service">Service payment</option></select></label><label>Currency<select name="currency" id="currency"></select></label></div>
+<label>Amount <span id="currencyHint" class="hint"></span><input name="amount" type="number" min="0.01" step="any" placeholder="Enter amount" required></label>
+<label>Note <span class="hint">Optional</span><textarea name="note" rows="3" maxlength="500" placeholder="Add a short note"></textarea></label>
+<div class="estimate" id="estimate">Select a currency and enter an amount to see the NGN estimate.</div><button class="button" type="submit" id="payButton">Continue to secure payment <span>→</span></button><p id="message" class="message" role="status"></p></form></section>
+<section id="paymentResult" class="panel hidden"><h2>Checking your payment…</h2><p id="verifyMessage" class="muted">Please wait while we verify your transaction.</p></section>
+<footer>Payments are processed by Paystack. Exchange-rate estimates are indicative; your checkout is charged in NGN.</footer></main><script type="module" src="/app.js"></script></body></html>
