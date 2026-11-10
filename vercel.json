@@ -8,6 +8,9 @@
     },
     "api/admin/*.js": {
       "maxDuration": 60
+    },
+    "api/pay/*.js": {
+      "maxDuration": 60
     }
   },
   "headers": [
@@ -44,4 +47,3 @@
     }
   ]
 }
-

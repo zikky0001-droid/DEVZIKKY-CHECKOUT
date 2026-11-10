@@ -48,7 +48,7 @@ async function api(path, options = {}) {
     nonJson = true;
     data = {
       error: response.status === 404
-        ? "The API route was not found by the host (HTTP 404). The admin route may be missing from this deployment."
+        ? "This API endpoint was not found by the deployment (HTTP 404). Check that the matching serverless function is included in the deployed project."
         : responseText
           ? `The server returned a non-JSON response (HTTP ${response.status}).`
           : `The server returned an empty response (HTTP ${response.status}).`
