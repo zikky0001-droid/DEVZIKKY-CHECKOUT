@@ -610,7 +610,10 @@ function renderAdminTransactions() {
     return activeAdminStatus === "all" || row.status === activeAdminStatus;
   });
   const labels = { all: "All transactions", success: "Successful transactions", pending: "Pending transactions", failed: "Failed / reversed transactions" };
-  $("#adminStatusSummary").textContent = `${labels[activeAdminStatus]} · ${rows.length.toLocaleString()} records. CSV export includes all matching records, not only the latest 500 shown here.`;
+  const summary = $("#adminStatusSummary");
+  if (summary) {
+    summary.textContent = `${labels[activeAdminStatus]} · ${rows.length.toLocaleString()} records. CSV export includes all matching records, not only the latest 500 shown here.`;
+  }
   const download = $("#adminStatusDownload");
   if (download) {
     download.href = `/api/admin/export?status=${encodeURIComponent(activeAdminStatus)}`;
@@ -633,7 +636,8 @@ function renderAdminTransactions() {
       <td>${escapeHtml(formatLagosDateTime(row.paid_at))}</td>
     </tr>`).join("")}</tbody>
   </table>` : '<p class="table-empty">No transactions in this status.</p>';
-  $("#adminRows").innerHTML = table;
+  const rowsContainer = $("#adminRows");
+  if (rowsContainer) rowsContainer.innerHTML = table;
   document.querySelectorAll("[data-admin-status]").forEach(button => {
     button.classList.toggle("primary", button.dataset.adminStatus === activeAdminStatus);
     button.setAttribute("aria-pressed", String(button.dataset.adminStatus === activeAdminStatus));
@@ -717,9 +721,9 @@ async function adminPage() {
     event.preventDefault();
     const message = $("#loginMessage");
     const button = loginForm.querySelector('button[type="submit"], button');
-    const originalText = button.textContent;
-    button.disabled = true;
-    message.textContent = "Signing in…";
+    const originalText = button?.textContent || "Sign in securely ↗";
+    if (button) button.disabled = true;
+    if (message) message.textContent = "Signing in…";
     try {
       await api("admin/login", {
         method: "POST",
@@ -728,24 +732,27 @@ async function adminPage() {
       loginForm.reset();
       const loaded = await showAdmin(false);
       if (!loaded) throw new Error(message.textContent || "Login succeeded, but the transaction list could not be loaded. Check the request ID and Vercel logs.");
-      message.textContent = "";
+      if (message) message.textContent = "";
     } catch (error) {
-      message.textContent = error.message;
+      if (message) message.textContent = error.message;
       console.error("[DEVZIKKY PAY] Admin sign-in failed", { message: error.message });
     } finally {
-      button.disabled = false;
-      button.textContent = originalText;
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
     }
   });
 
-  $("#logout").addEventListener("click", async () => {
+  $("#logout")?.addEventListener("click", async () => {
     try {
       await api("admin/logout", { method: "POST", body: "{}" });
-      $("#adminPanel").classList.add("hidden");
-      $("#loginPanel").classList.remove("hidden");
+      $("#adminPanel")?.classList.add("hidden");
+      $("#loginPanel")?.classList.remove("hidden");
       adminTransactions = [];
     } catch (error) {
-      $("#loginMessage").textContent = error.message;
+      const message = $("#loginMessage");
+      if (message) message.textContent = error.message;
     }
   });
   await showAdmin(true);
@@ -761,7 +768,8 @@ async function showAdmin(quiet = false) {
     console.info("[DEVZIKKY PAY] Admin transactions loaded", { count: adminTransactions.length });
     return true;
   } catch (error) {
-    if (!quiet) $("#loginMessage").textContent = error.message;
+    const message = $("#loginMessage");
+    if (!quiet && message) message.textContent = error.message;
     return false;
   }
 }

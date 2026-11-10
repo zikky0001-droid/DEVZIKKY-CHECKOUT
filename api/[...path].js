@@ -1130,7 +1130,7 @@ export default async function handler(req, res) {
           error: "Statistics history is limited to a maximum three-year window."
         }, requestId);
       }
-      const [totals, byStatus, series, byCurrency, byType, recent] = await Promise.all([
+      const statsQueries = [
         db`
           WITH activity AS (
             SELECT *, CASE WHEN status = 'success'
@@ -1242,7 +1242,23 @@ export default async function handler(req, res) {
           ORDER BY activity_at DESC
           LIMIT 20
         `
-      ]);
+      ];
+      const statsQueryNames = ["totals", "status_breakdown", "timeline_series", "currency_breakdown", "type_breakdown", "recent_public_activity"];
+      const [totals, byStatus, series, byCurrency, byType, recent] = await Promise.all(
+        statsQueries.map((query, index) => Promise.resolve(query).catch(error => {
+          log("error", "statistics.query_failed", {
+            query: statsQueryNames[index],
+            error_name: error?.name || "Error",
+            error_code: error?.code || error?.cause?.code || null,
+            message: error?.message || "Unknown database error",
+            detail: error?.detail || error?.cause?.detail || null,
+            hint: error?.hint || error?.cause?.hint || null,
+            position: error?.position || error?.cause?.position || null,
+            stack: error?.stack || null
+          });
+          throw error;
+        }))
+      );
 
       const statusMap = Object.fromEntries(byStatus.map(row => [row.status, row]));
       log("info", "statistics.generated", {
