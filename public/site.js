@@ -16,6 +16,58 @@
       }
     });
   }
+
+  // One theme preference is shared by every page on this origin.
+  const THEME_KEY = 'devzikky-pay-theme';
+  const getTheme = () => document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  const updateThemeMeta = theme => {
+    document.documentElement.style.colorScheme = theme;
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) themeMeta.setAttribute('content', theme === 'light' ? '#f5f7fc' : '#070910');
+  };
+  const paintThemeButton = button => {
+    const theme = getTheme();
+    const next = theme === 'dark' ? 'light' : 'dark';
+    const icon = theme === 'dark' ? '☀' : '☾';
+    const label = theme === 'dark' ? 'Light' : 'Dark';
+    button.innerHTML = `<span class="theme-toggle-icon" aria-hidden="true">${icon}</span><span class="theme-toggle-label">${label}</span>`;
+    button.setAttribute('aria-label', `Switch to ${next} theme`);
+    button.setAttribute('title', `Switch to ${next} theme`);
+    button.setAttribute('aria-pressed', String(theme === 'light'));
+  };
+  const headerInner = document.querySelector('.header-inner');
+  if (headerInner) {
+    let themeButton = headerInner.querySelector('[data-theme-toggle]');
+    if (!themeButton) {
+      themeButton = document.createElement('button');
+      themeButton.type = 'button';
+      themeButton.className = 'theme-toggle';
+      themeButton.setAttribute('data-theme-toggle', '');
+      const menuButton = headerInner.querySelector('[data-menu-toggle]');
+      if (menuButton) headerInner.insertBefore(themeButton, menuButton);
+      else headerInner.appendChild(themeButton);
+    }
+    paintThemeButton(themeButton);
+    updateThemeMeta(getTheme());
+    themeButton.addEventListener('click', () => {
+      const next = getTheme() === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      updateThemeMeta(next);
+      try { localStorage.setItem(THEME_KEY, next); } catch (_) { /* Theme still changes for this page. */ }
+      paintThemeButton(themeButton);
+      document.dispatchEvent(new CustomEvent('dz:themechange', { detail: { theme: next } }));
+    });
+  }
+
+  // Keep already-open tabs in sync when the theme is changed in another tab.
+  window.addEventListener('storage', event => {
+    if (event.key !== THEME_KEY || (event.newValue !== 'light' && event.newValue !== 'dark')) return;
+    document.documentElement.setAttribute('data-theme', event.newValue);
+    updateThemeMeta(event.newValue);
+    const existingButton = document.querySelector('[data-theme-toggle]');
+    if (existingButton) paintThemeButton(existingButton);
+  });
+
   const revealItems = document.querySelectorAll('.reveal');
   if ('IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     const observer = new IntersectionObserver(entries => {
