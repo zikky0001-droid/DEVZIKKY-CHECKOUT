@@ -7,12 +7,12 @@
   const status = root.querySelector('[data-loader-status]');
   const skip = root.querySelector('[data-loader-skip]');
   const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const duration = prefersReduced ? 900 : 6200;
+  const duration = prefersReduced ? 250 : 850;
   const phrases = [
     'Preparing your DEVZIKKY PAY experience',
-    'Connecting the story behind the software',
-    'Arranging the tools, projects and details',
-    'Polishing the interface and interactions',
+    'Preparing the secure checkout experience',
+    'Loading payment and project information',
+    'Checking the finishing details',
     'Making room for the next useful idea',
     'Almost ready — welcome in'
   ];

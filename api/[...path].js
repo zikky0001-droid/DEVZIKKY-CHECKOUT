@@ -5,28 +5,14 @@ import { APP_CONFIG, CURRENCIES } from "../config.js";
 const SERVICE = "DEVZIKKY PAY";
 const MAX_BODY_BYTES = 1024 * 1024;
 
-function sanitizeLogValue(value, depth = 0) {
-  if (typeof value === "string") return redactLogText(value, 1200);
-  if (value === null || typeof value === "number" || typeof value === "boolean") return value;
-  if (Array.isArray(value)) return value.slice(0, 30).map(item => sanitizeLogValue(item, depth + 1));
-  if (value && typeof value === "object") {
-    if (depth >= 3) return "[nested object omitted]";
-    return Object.fromEntries(
-      Object.entries(value).slice(0, 30).map(([key, item]) => [key, sanitizeLogValue(item, depth + 1)])
-    );
-  }
-  return String(value ?? "");
-}
-
 function logger(requestId, level, event, details = {}) {
-  const safeDetails = sanitizeLogValue(details);
   const entry = {
     timestamp: new Date().toISOString(),
     level,
     service: SERVICE,
     request_id: requestId,
     event,
-    ...safeDetails
+    ...details
   };
   const line = JSON.stringify(entry);
   if (level === "error") console.error(line);
@@ -45,26 +31,6 @@ function sendJson(res, status, data, requestId) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   if (requestId) res.setHeader("X-Request-ID", requestId);
   res.end(JSON.stringify(data, null, 2));
-}
-
-function redactLogText(value, maxLength = 1200) {
-  return String(value ?? "")
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
-    .replace(/postgres(?:ql)?:\/\/[^\s"'<>]+/gi, "[redacted-database-url]")
-    .replace(/(?:sk|pk)_(?:live|test)_[A-Za-z0-9]+/gi, "[redacted-payment-key]")
-    .replace(/Bearer\s+[^\s"']+/gi, "Bearer [redacted]")
-    .replace(/(DATABASE_URL|PAYSTACK_KEY|ADMIN_KEY|API_KEY)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
-    .replace(/((?:api|admin)[_-]?key|password|token)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
-    .slice(0, maxLength);
-}
-
-function safeLogPath(value) {
-  try {
-    return new URL(String(value || "/"), "https://local.invalid").pathname.slice(0, 180);
-  } catch {
-    return String(value || "/").split("?")[0].slice(0, 180);
-  }
 }
 
 async function readBody(req) {
@@ -122,6 +88,11 @@ function safeEqual(left, right) {
   const a = Buffer.from(String(left ?? ""));
   const b = Buffer.from(String(right ?? ""));
   return a.length > 0 && a.length === b.length && timingSafeEqual(a, b);
+}
+
+function makeReference() {
+  return "DZP-" + Date.now().toString(36).toUpperCase() + "-" +
+    randomBytes(5).toString("hex").toUpperCase();
 }
 
 function dateAgeDays(dateString) {
@@ -433,6 +404,71 @@ async function paystackRequest(path, payload, method, log) {
   return data.data;
 }
 
+async function initializePayment(db, details, log) {
+  const amountNgn = Number(details.amountNgn);
+  if (!Number.isFinite(amountNgn) || amountNgn < 1 || amountNgn > 100000000) {
+    throw new Error("Amount must be between ₦1 and ₦100,000,000");
+  }
+
+  const reference = makeReference();
+  const amountMinor = Math.round(amountNgn * 100);
+
+  await db`
+    INSERT INTO transactions
+      (reference, name, email, amount_minor, currency, original_amount,
+       original_currency, exchange_rate, rate_date, rate_source,
+       type, note, source)
+    VALUES
+      (${reference}, ${details.name}, ${details.email}, ${amountMinor}, 'NGN',
+       ${details.originalAmount ?? amountNgn}, ${details.originalCurrency ?? "NGN"},
+       ${details.exchangeRate ?? 1}, ${details.rateDate ?? null},
+       ${details.rateSource ?? "api"}, ${details.type}, ${details.note ?? null},
+       ${details.source})
+  `;
+
+  try {
+    const callbackBase = process.env.APP_URL;
+    if (!callbackBase) throw new Error("APP_URL is not configured");
+    const data = await paystackRequest("/transaction/initialize", {
+      email: details.email,
+      amount: String(amountMinor),
+      currency: "NGN",
+      reference,
+      callback_url: `${callbackBase.replace(/\/$/, "")}/?payment=return`,
+      metadata: {
+        custom_fields: [
+          { display_name: "Payment type", variable_name: "payment_type", value: details.type },
+          { display_name: "Source", variable_name: "source", value: details.source }
+        ]
+      }
+    }, "POST", log);
+
+    log("info", "payment.initialized", {
+      reference,
+      source: details.source,
+      currency: "NGN"
+    });
+
+    return {
+      reference,
+      authorization_url: data.authorization_url,
+      access_code: data.access_code
+    };
+  } catch (error) {
+    await db`
+      UPDATE transactions
+      SET status = 'failed', updated_at = NOW()
+      WHERE reference = ${reference}
+    `;
+    log("error", "payment.initialization.failed", {
+      reference,
+      source: details.source,
+      message: error.message
+    });
+    throw error;
+  }
+}
+
 async function verifyPayment(db, reference, log) {
   const existing = await db`
     SELECT reference, amount_minor, currency
@@ -441,10 +477,8 @@ async function verifyPayment(db, reference, log) {
     LIMIT 1
   `;
   if (!existing.length) {
-    log("warn", "payment.verify.unknown_reference");
-    const error = new Error("Payment reference was not found");
-    error.statusCode = 404;
-    throw error;
+    log("warn", "payment.verify.unknown_reference", { reference });
+    throw new Error("Payment reference was not found");
   }
 
   const data = await paystackRequest(
@@ -561,10 +595,10 @@ async function healthCheck(requestId, res, log) {
   } catch (error) {
     checks.database = "error";
     checks.schema = "unknown";
-    databaseError = "Database connection check failed";
+    databaseError = error.message;
     log("error", "health.database.failed", {
-      message: redactLogText(error.message),
-      stack: redactLogText(error.stack)
+      message: error.message,
+      stack: error.stack
     });
   }
 
@@ -670,65 +704,6 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { ok: true }, requestId);
     }
 
-    // Browser errors are reported without request bodies, customer data,
-    // cookies, query strings, or credentials. This endpoint never writes to DB.
-    if (path === "client-error") {
-      if (req.method !== "POST") {
-        res.setHeader("Allow", "POST");
-        return sendJson(res, 405, { error: "Method not allowed" }, requestId);
-      }
-
-      const origin = req.headers.origin;
-      if (origin && origin !== url.origin) {
-        log("warn", "client.error.origin_rejected");
-        return sendJson(res, 403, { error: "Origin not allowed" }, requestId);
-      }
-
-      const body = await readBody(req);
-      if (String(req.rawBody || "").length > 4096) {
-        return sendJson(res, 413, { error: "Error report is too large" }, requestId);
-      }
-
-      const allowedTypes = new Set([
-        "window.error",
-        "resource.error",
-        "unhandledrejection",
-        "api.network.error",
-        "api.response.error"
-      ]);
-      const type = allowedTypes.has(body.type) ? body.type : "client.error";
-      const message = redactLogText(body.message || "Unspecified browser error", 320);
-      const page = safeLogPath(body.page || "/");
-      const filename = safeLogPath(body.filename || "");
-      const line = Math.max(0, Math.min(10000000, Number(body.line) || 0));
-      const column = Math.max(0, Math.min(10000000, Number(body.column) || 0));
-
-      log("error", "client.error.reported", {
-        client_error_type: type,
-        message,
-        page,
-        filename,
-        line,
-        column
-      });
-      return sendJson(res, 202, { ok: true, request_id: requestId }, requestId);
-    }
-
-    // Payment creation remains disabled until merchant eligibility, account
-    // authority and customer-facing obligations have been confirmed against
-    // the payment provider's current terms. Verification/webhooks remain live.
-    if ((path === "pay/initialize" || path === "automation/initialize") && req.method === "POST") {
-      log("warn", "payment.initialization.paused", {
-        provider: "paystack",
-        reason: "merchant_eligibility_and_account_authority_review"
-      });
-      return sendJson(res, 503, {
-        error: "New payment initialization is currently paused.",
-        code: "PAYMENTS_PAUSED",
-        message: "Existing references may still be verified. No new payment link was created."
-      }, requestId);
-    }
-
     const db = getSql();
 
     // Maintenance is best-effort and never blocks unrelated API work.
@@ -770,14 +745,98 @@ export default async function handler(req, res) {
       return sendJson(res, accepted ? 200 : 401, { received: accepted }, requestId);
     }
 
+    if (path === "pay/initialize" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!validEmail(body.email)) {
+        log("warn", "checkout.validation.failed", { field: "email" });
+        return sendJson(res, 400, { error: "Enter a valid email address" }, requestId);
+      }
+
+      const currencyCode = String(body.currency || "NGN").toUpperCase();
+      const currency = CURRENCIES.find(item => item.code === currencyCode);
+      if (!currency) {
+        return sendJson(res, 400, { error: "Unsupported currency" }, requestId);
+      }
+
+      const amount = Number(body.amount);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 10000000) {
+        return sendJson(res, 400, { error: "Invalid amount" }, requestId);
+      }
+
+      const rates = await getRates(db, log);
+      const ngnRate = Number(rates.ngn_per_unit[currencyCode]);
+      if (!Number.isFinite(ngnRate) || ngnRate <= 0) {
+        log("warn", "checkout.currency_unavailable", {
+          currency: currencyCode,
+          rate_source: rates.source
+        });
+        return sendJson(res, 503, {
+          error: "This currency is temporarily unavailable",
+          currency: currencyCode,
+          rate_source: rates.source
+        }, requestId);
+      }
+
+      const amountNgn = currencyCode === "NGN" ? amount : amount * ngnRate;
+      const payment = await initializePayment(db, {
+        amountNgn,
+        email: body.email.trim(),
+        name: String(body.name || "Customer").slice(0, 100),
+        type: ["donation", "service"].includes(body.type) ? body.type : "donation",
+        note: String(body.note || "").slice(0, 500),
+        source: "website",
+        originalAmount: amount,
+        originalCurrency: currencyCode,
+        exchangeRate: ngnRate,
+        rateDate: rates.rateDate,
+        rateSource: rates.source
+      }, log);
+
+      return sendJson(res, 200, {
+        ...payment,
+        currency: "NGN",
+        amount_ngn: Math.round(amountNgn * 100) / 100,
+        original_amount: amount,
+        original_currency: currencyCode,
+        rate_date: rates.rateDate,
+        rate_source: rates.source
+      }, requestId);
+    }
+
     if (path === "pay/verify" && req.method === "GET") {
       const reference = url.searchParams.get("reference") || url.searchParams.get("trxref");
-      if (!reference || reference.length > 128 || !/^[A-Za-z0-9_-]+$/.test(reference)) {
-        log("warn", "payment.verify.invalid_reference");
-        return sendJson(res, 400, { error: "A valid payment reference is required" }, requestId);
+      if (!reference) {
+        return sendJson(res, 400, { error: "Missing payment reference" }, requestId);
       }
       const result = await verifyPayment(db, reference, log);
       return sendJson(res, 200, result, requestId);
+    }
+
+    if (path === "automation/initialize" && req.method === "POST") {
+      if (!hasAutomationKey(req)) {
+        log("warn", "automation.authentication.failed");
+        return sendJson(res, 401, { error: "Unauthorized" }, requestId);
+      }
+
+      const body = await readBody(req);
+      const payment = await initializePayment(db, {
+        amountNgn: Number(body.amount),
+        email: APP_CONFIG.API_EMAIL,
+        name: "Anonymous",
+        type: "transaction",
+        note: "Automation",
+        source: "api"
+      }, log);
+
+      log("info", "automation.payment_link.created", {
+        reference: payment.reference
+      });
+
+      return sendJson(res, 200, {
+        ...payment,
+        currency: "NGN",
+        email: APP_CONFIG.API_EMAIL
+      }, requestId);
     }
 
     if (path === "stats" && req.method === "GET") {
@@ -879,8 +938,8 @@ export default async function handler(req, res) {
     log(status >= 500 ? "error" : "warn", "request.failed", {
       status,
       error_name: error.name || "Error",
-      message: redactLogText(error.message || "Unknown error"),
-      stack: status >= 500 ? redactLogText(error.stack) : undefined
+      message: error.message || "Unknown error",
+      stack: status >= 500 ? error.stack : undefined
     });
     return sendJson(res, status, {
       error: status >= 500 ? "Server error. Check Vercel function logs." : error.message,

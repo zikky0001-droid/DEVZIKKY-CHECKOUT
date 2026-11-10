@@ -33,7 +33,6 @@ async function api(path, options = {}) {
       route,
       message: error.message
     });
-    window.reportDzError?.("api.network.error", `${method} ${route}: ${error.message || "Network request failed"}`);
     throw new Error("Could not reach the server. Check your connection and try again.");
   }
 
@@ -81,12 +80,6 @@ async function api(path, options = {}) {
   }
 
   if (!response.ok) {
-    if (response.status >= 500 || response.status === 404 || nonJson) {
-      window.reportDzError?.(
-        "api.response.error",
-        `${method} ${route} returned HTTP ${response.status}: ${data.error || "Unexpected response"}`
-      );
-    }
     const suffix = requestId || data.request_id
       ? ` (request ID: ${requestId || data.request_id})`
       : "";
@@ -102,38 +95,9 @@ async function loadRates() {
   return data;
 }
 
-async function verifyPaymentReference(reference) {
-  const paymentResult = $("#paymentResult");
-  const verifyMessage = $("#verifyMessage");
-  if (!paymentResult || !verifyMessage) return;
-
-  paymentResult.classList.remove("hidden");
-  verifyMessage.textContent = "Verifying payment reference…";
-
-  try {
-    const result = await api(`pay/verify?reference=${encodeURIComponent(reference)}`);
-    verifyMessage.textContent = result.status === "success"
-      ? "Payment verified successfully. Thank you."
-      : `Payment status: ${result.status}.`;
-  } catch (error) {
-    verifyMessage.textContent = `We could not verify this payment yet. ${error.message}`;
-    console.error("[DEVZIKKY PAY] Callback verification failed", {
-      message: error.message
-    });
-  }
-}
-
 async function checkoutPage() {
   const form = $("#checkoutForm");
-  const parameters = new URLSearchParams(window.location.search);
-  const reference = parameters.get("reference") || parameters.get("trxref");
-
-  // Existing Paystack references can still be checked on the landing page,
-  // even though new payment initialization is currently disabled.
-  if (!form) {
-    if (reference && reference.length <= 128) await verifyPaymentReference(reference);
-    return;
-  }
+  if (!form) return;
 
   const currencySelect = $("#currency");
   const estimate = $("#estimate");
@@ -219,8 +183,25 @@ async function checkoutPage() {
     }
   });
 
-  if (reference && reference.length <= 128) {
-    await verifyPaymentReference(reference);
+  const parameters = new URLSearchParams(window.location.search);
+  const reference = parameters.get("reference") || parameters.get("trxref");
+
+  if (reference) {
+    $("#paymentResult").classList.remove("hidden");
+    $("#verifyMessage").textContent = "Verifying payment…";
+
+    try {
+      const result = await api(`pay/verify?reference=${encodeURIComponent(reference)}`);
+      $("#verifyMessage").textContent = result.status === "success"
+        ? "Payment verified successfully. Thank you!"
+        : `Payment status: ${result.status}.`;
+    } catch (error) {
+      $("#verifyMessage").textContent =
+        `We could not verify this payment yet. ${error.message}`;
+      console.error("[DEVZIKKY PAY] Callback verification failed", {
+        message: error.message
+      });
+    }
   }
 }
 
