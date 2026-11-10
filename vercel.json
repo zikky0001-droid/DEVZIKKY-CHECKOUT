@@ -33,6 +33,54 @@
   ],
   "rewrites": [
     {
+      "source": "/",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/about",
+      "destination": "/about.html"
+    },
+    {
+      "source": "/projects",
+      "destination": "/projects.html"
+    },
+    {
+      "source": "/support",
+      "destination": "/support.html"
+    },
+    {
+      "source": "/roadmap",
+      "destination": "/roadmap.html"
+    },
+    {
+      "source": "/statistics",
+      "destination": "/statistics.html"
+    },
+    {
+      "source": "/control-room",
+      "destination": "/control-room.html"
+    },
+    {
+      "source": "/api",
+      "destination": "/api.html"
+    },
+    {
+      "source": "/donate",
+      "destination": "/donate.html"
+    },
+    {
+      "source": "/faq",
+      "destination": "/faq.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/admin.html"
+    },
+    {
       "source": "/ping",
       "destination": "/api/ping"
     },
