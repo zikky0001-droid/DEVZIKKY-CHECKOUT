@@ -149,6 +149,13 @@ function currentLagosIsoDate() {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+function csvCellSafe(value) {
+  let text = String(value ?? "");
+  // Neutralize spreadsheet formulas in donor-controlled fields before CSV quoting.
+  if (/^[\u0000-\u0020]*[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
 function formatTimestampLagos(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -531,28 +538,36 @@ async function paystackRequest(path, payload, method, log) {
 
 async function initializePayment(db, details, log) {
   const amountNgn = Number(details.amountNgn);
-  if (!Number.isFinite(amountNgn) ||
-      amountNgn < APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN ||
-      amountNgn > APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN) {
+  const minimumNgn = Number(APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN);
+  const maximumNgn = Number(APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN);
+  const minimumMinor = Math.round(minimumNgn * 100);
+  const maximumMinor = Math.round(maximumNgn * 100);
+  const amountMinor = Math.round(amountNgn * 100);
+
+  // Validate the exact kobo value that will be inserted and sent to Paystack.
+  // This prevents sub-kobo rounding from slipping above the configured ceiling.
+  if (!Number.isFinite(amountNgn) || !Number.isSafeInteger(amountMinor) ||
+      !Number.isSafeInteger(minimumMinor) || !Number.isSafeInteger(maximumMinor) ||
+      minimumMinor < 1 || maximumMinor < minimumMinor ||
+      amountMinor < minimumMinor || amountMinor > maximumMinor) {
     throw new Error(
-      `Payment amount must be between ₦${APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")} and ₦${APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")}`
+      `Payment amount must be between ₦${minimumNgn.toLocaleString("en-NG")} and ₦${maximumNgn.toLocaleString("en-NG")}`
     );
   }
 
   const reference = makeReference();
-  const amountMinor = Math.round(amountNgn * 100);
 
   await db`
     INSERT INTO transactions
       (reference, name, email, amount_minor, currency, original_amount,
        original_currency, exchange_rate, rate_date, rate_source,
-       type, note, source)
+       type, note, note_public, source)
     VALUES
       (${reference}, ${details.name}, ${details.email}, ${amountMinor}, 'NGN',
        ${details.originalAmount ?? amountNgn}, ${details.originalCurrency ?? "NGN"},
        ${details.exchangeRate ?? 1}, ${details.rateDate ?? null},
        ${details.rateSource ?? "api"}, ${details.type}, ${details.note ?? null},
-       ${details.source})
+       ${Boolean(details.notePublic)}, ${details.source})
   `;
 
   try {
@@ -705,7 +720,8 @@ async function healthCheck(requestId, res, log) {
     paystack_key: Boolean(process.env.PAYSTACK_KEY),
     admin_key: Boolean(process.env.ADMIN_KEY),
     api_key: Boolean(process.env.API_KEY),
-    app_url: Boolean(process.env.APP_URL)
+    app_url: Boolean(process.env.APP_URL),
+    public_note_consent: "not_checked"
   };
 
   let databaseError = null;
@@ -715,17 +731,24 @@ async function healthCheck(requestId, res, log) {
       SELECT
         to_regclass('public.transactions') IS NOT NULL AS transactions,
         to_regclass('public.rate_snapshots') IS NOT NULL AS rate_snapshots,
-        to_regclass('public.maintenance_state') IS NOT NULL AS maintenance_state
+        to_regclass('public.maintenance_state') IS NOT NULL AS maintenance_state,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'transactions'
+            AND column_name = 'note_public'
+        ) AS note_public_consent
     `;
     checks.database = "ok";
+    checks.public_note_consent = result[0]?.note_public_consent ? "ok" : "missing";
     checks.schema = result[0] &&
       result[0].transactions &&
       result[0].rate_snapshots &&
-      result[0].maintenance_state
+      result[0].maintenance_state &&
+      result[0].note_public_consent
       ? "ok"
       : "incomplete";
     if (checks.schema === "incomplete") {
-      databaseError = "One or more required tables are missing";
+      databaseError = "One or more required tables or columns are missing";
       log("error", "health.schema.incomplete", { tables: result[0] });
     } else {
       log("info", "health.database.ready");
@@ -842,6 +865,14 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { ok: true }, requestId);
     }
 
+    if (path === "payment-limits" && req.method === "GET") {
+      return sendJson(res, 200, {
+        currency: "NGN",
+        minimum_amount_ngn: APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN,
+        maximum_amount_ngn: APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN
+      }, requestId);
+    }
+
     const db = getSql();
 
     // Maintenance is best-effort and never blocks unrelated API work.
@@ -889,6 +920,13 @@ export default async function handler(req, res) {
         log("warn", "checkout.validation.failed", { field: "email" });
         return sendJson(res, 400, { error: "Enter a valid email address" }, requestId);
       }
+      const note = body.note == null ? "" : String(body.note);
+      if (note.length > 200) {
+        log("warn", "checkout.validation.failed", { field: "note", max_length: 200 });
+        return sendJson(res, 400, { error: "Your note must be 200 characters or fewer." }, requestId);
+      }
+      const notePublic = note.trim().length > 0 &&
+        [true, "true", "on", "1"].includes(body.note_public);
 
       const currencyCode = String(body.currency || "NGN").toUpperCase();
       const currency = CURRENCIES.find(item => item.code === currencyCode);
@@ -928,7 +966,8 @@ export default async function handler(req, res) {
         email: body.email.trim(),
         name: String(body.name || "Customer").slice(0, 100),
         type: ["donation", "service"].includes(body.type) ? body.type : "donation",
-        note: String(body.note || "").slice(0, 500),
+        note,
+        notePublic,
         source: "website",
         originalAmount: amount,
         originalCurrency: currencyCode,
@@ -992,6 +1031,61 @@ export default async function handler(req, res) {
       }, requestId);
     }
 
+    if (path === "stats/export" && req.method === "GET") {
+      const todayIso = currentLagosIsoDate();
+      const defaultFromDate = new Date(`${todayIso}T12:00:00Z`);
+      defaultFromDate.setUTCDate(defaultFromDate.getUTCDate() - 29);
+      const defaultFrom = defaultFromDate.toISOString().slice(0, 10);
+      const fromInput = url.searchParams.get("from") || isoDateToDmy(defaultFrom);
+      const toInput = url.searchParams.get("to") || isoDateToDmy(todayIso);
+      const from = parseCalendarDate(fromInput);
+      const to = parseCalendarDate(toInput);
+
+      if (!from || !to || from > to || to > todayIso) {
+        return sendJson(res, 400, {
+          error: "Choose a valid date range in DD/MM/YYYY format.",
+          expected_format: "DD/MM/YYYY"
+        }, requestId);
+      }
+      const rangeDays = Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+      if (!Number.isFinite(rangeDays) || rangeDays > 1096) {
+        return sendJson(res, 400, { error: "Statistics exports are limited to a maximum three-year window." }, requestId);
+      }
+
+      // This public export contains no customer identity or contact fields.
+      // Notes are included only when the donor explicitly opted in at checkout.
+      const rows = await db`
+        SELECT
+          reference,
+          amount_minor::numeric / 100 AS amount_ngn,
+          original_currency,
+          type,
+          to_char(COALESCE(paid_at, created_at) AT TIME ZONE 'Africa/Lagos', 'DD/MM/YYYY HH24:MI:SS') AS paid_at_lagos,
+          CASE WHEN note_public IS TRUE THEN COALESCE(note, '') ELSE '' END AS public_note
+        FROM transactions
+        WHERE status = 'success'
+          AND (COALESCE(paid_at, created_at) AT TIME ZONE 'Africa/Lagos')::date
+            BETWEEN ${from}::date AND ${to}::date
+        ORDER BY COALESCE(paid_at, created_at) DESC
+      `;
+      const columns = ["reference", "amount_ngn", "original_currency", "type", "paid_at_lagos", "public_note"];
+      const csv = "\uFEFF" + [
+        columns.map(csvCellSafe).join(","),
+        ...rows.map(row => columns.map(column => csvCellSafe(row[column])).join(","))
+      ].join("\r\n");
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="devzikky-pay-public-transactions-${from}-to-${to}.csv"`);
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("X-Request-ID", requestId);
+      log("info", "statistics.public_export.completed", {
+        rows: rows.length,
+        from: isoDateToDmy(from),
+        to: isoDateToDmy(to)
+      });
+      return res.end(csv);
+    }
+
     if (path === "stats" && req.method === "GET") {
       const todayIso = currentLagosIsoDate();
       const defaultFromIso = new Date(`${todayIso}T12:00:00Z`);
@@ -1038,57 +1132,114 @@ export default async function handler(req, res) {
       }
       const [totals, byStatus, series, byCurrency, byType, recent] = await Promise.all([
         db`
+          WITH activity AS (
+            SELECT *, CASE WHEN status = 'success'
+              THEN COALESCE(paid_at, created_at)
+              ELSE created_at END AS activity_at
+            FROM transactions
+          )
           SELECT
             COUNT(*) FILTER (WHERE status = 'success')::int AS successful,
             COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
             COUNT(*) FILTER (WHERE status IN ('failed','reversed'))::int AS failed,
             COALESCE(SUM(amount_minor) FILTER (WHERE status = 'success'), 0)::numeric / 100 AS total_ngn
-          FROM transactions
-          WHERE (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
+          FROM activity
+          WHERE (activity_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
         `,
         db`
+          WITH activity AS (
+            SELECT *, CASE WHEN status = 'success'
+              THEN COALESCE(paid_at, created_at)
+              ELSE created_at END AS activity_at
+            FROM transactions
+          )
           SELECT status, COUNT(*)::int AS count,
             COALESCE(SUM(amount_minor),0)::numeric / 100 AS total_ngn
-          FROM transactions
-          WHERE (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
+          FROM activity
+          WHERE (activity_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
           GROUP BY status
         `,
         db`
+          WITH bounds AS (
+            SELECT
+              date_trunc(${grain}, ${from}::date::timestamp) AS first_bucket,
+              date_trunc(${grain}, ${to}::date::timestamp) AS last_bucket
+          ),
+          buckets AS (
+            SELECT generate_series(
+              first_bucket,
+              last_bucket,
+              CASE ${grain}
+                WHEN 'day' THEN INTERVAL '1 day'
+                WHEN 'week' THEN INTERVAL '1 week'
+                WHEN 'month' THEN INTERVAL '1 month'
+                ELSE INTERVAL '1 year'
+              END
+            ) AS bucket
+            FROM bounds
+          ),
+          activity AS (
+            SELECT *, CASE WHEN status = 'success'
+              THEN COALESCE(paid_at, created_at)
+              ELSE created_at END AS activity_at
+            FROM transactions
+          ),
+          aggregated AS (
+            SELECT
+              date_trunc(${grain}, activity_at AT TIME ZONE 'Africa/Lagos') AS bucket,
+              COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE status = 'success')::int AS successful,
+              COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+              COUNT(*) FILTER (WHERE status IN ('failed','reversed'))::int AS failed,
+              COALESCE(SUM(amount_minor) FILTER (WHERE status = 'success'),0)::numeric / 100 AS successful_ngn
+            FROM activity
+            WHERE (activity_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
+            GROUP BY date_trunc(${grain}, activity_at AT TIME ZONE 'Africa/Lagos')
+          )
           SELECT
-            to_char(date_trunc(${grain}, created_at AT TIME ZONE 'Africa/Lagos'), 'DD/MM/YYYY') AS bucket,
-            COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE status = 'success')::int AS successful,
-            COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
-            COUNT(*) FILTER (WHERE status IN ('failed','reversed'))::int AS failed,
-            COALESCE(SUM(amount_minor) FILTER (WHERE status = 'success'),0)::numeric / 100 AS successful_ngn
-          FROM transactions
-          WHERE (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
-          GROUP BY 1
-          ORDER BY MIN(date_trunc(${grain}, created_at AT TIME ZONE 'Africa/Lagos'))
+            to_char(buckets.bucket, 'DD/MM/YYYY') AS bucket,
+            COALESCE(aggregated.total, 0)::int AS total,
+            COALESCE(aggregated.successful, 0)::int AS successful,
+            COALESCE(aggregated.pending, 0)::int AS pending,
+            COALESCE(aggregated.failed, 0)::int AS failed,
+            COALESCE(aggregated.successful_ngn, 0)::numeric AS successful_ngn
+          FROM buckets
+          LEFT JOIN aggregated ON aggregated.bucket = buckets.bucket
+          ORDER BY buckets.bucket
         `,
         db`
+          WITH activity AS (
+            SELECT *, COALESCE(paid_at, created_at) AS activity_at
+            FROM transactions WHERE status = 'success'
+          )
           SELECT original_currency AS currency, COUNT(*)::int AS count,
             COALESCE(SUM(original_amount), 0)::numeric AS total
-          FROM transactions
-          WHERE status = 'success'
-            AND (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
+          FROM activity
+          WHERE (activity_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
           GROUP BY original_currency ORDER BY count DESC
         `,
         db`
+          WITH activity AS (
+            SELECT *, COALESCE(paid_at, created_at) AS activity_at
+            FROM transactions WHERE status = 'success'
+          )
           SELECT type, COUNT(*)::int AS count,
             COALESCE(SUM(amount_minor), 0)::numeric / 100 AS total_ngn
-          FROM transactions
-          WHERE status = 'success'
-            AND (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
+          FROM activity
+          WHERE (activity_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
           GROUP BY type
         `,
         db`
+          WITH activity AS (
+            SELECT *, COALESCE(paid_at, created_at) AS activity_at
+            FROM transactions WHERE status = 'success'
+          )
           SELECT reference, amount_minor::numeric / 100 AS amount_ngn,
-            type, paid_at
-          FROM transactions
-          WHERE status = 'success'
-            AND (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
-          ORDER BY paid_at DESC NULLS LAST
+            type, activity_at AS paid_at,
+            CASE WHEN note_public IS TRUE THEN COALESCE(note, '') ELSE '' END AS public_note
+          FROM activity
+          WHERE (activity_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
+          ORDER BY activity_at DESC
           LIMIT 20
         `
       ]);
@@ -1105,7 +1256,9 @@ export default async function handler(req, res) {
         window: {
           from: isoDateToDmy(from), to: isoDateToDmy(to),
           from_iso: from, to_iso: to, grain,
-          timezone: "Africa/Lagos", retention_years: APP_CONFIG.RETENTION_YEARS
+          timezone: "Africa/Lagos",
+          date_basis: { successful: "paid_at (fallback: created_at)", pending_failed_reversed: "created_at" },
+          retention_years: APP_CONFIG.RETENTION_YEARS
         },
         totals: totals[0],
         statuses: {
@@ -1122,15 +1275,24 @@ export default async function handler(req, res) {
 
     if (path.startsWith("admin/")) {
       if (!hasAdminSession(req)) {
-        log("warn", "admin.authorization.denied");
-        return sendJson(res, 401, { error: "Admin authentication required" }, requestId);
+        const cookieHeader = String(req.headers.cookie || "");
+        const adminCookiePresent = cookieHeader.split(";").some(part => part.trim().startsWith("dz_admin="));
+        log("warn", "admin.authorization.denied", {
+          host: String(req.headers.host || "").slice(0, 200) || null,
+          origin: String(req.headers.origin || "").slice(0, 300) || null,
+          admin_cookie_present: adminCookiePresent
+        });
+        return sendJson(res, 401, {
+          error: "Admin authentication required. Sign in again on this same domain.",
+          request_id: requestId
+        }, requestId);
       }
 
       if (path === "admin/transactions" && req.method === "GET") {
         const rows = await db`
           SELECT id, reference, name, email,
             amount_minor::numeric / 100 AS amount_ngn,
-            original_amount, original_currency, type, note, source, status,
+            original_amount, original_currency, type, note, note_public, source, status,
             created_at, paid_at
           FROM transactions
           ORDER BY created_at DESC
@@ -1148,35 +1310,39 @@ export default async function handler(req, res) {
         const rows = requestedStatus === "all" ? await db`
           SELECT reference, name, email,
             amount_minor::numeric / 100 AS amount_ngn,
-            original_amount, original_currency, type, note, source, status,
+            original_amount, original_currency, type, note, note_public, source, status,
             created_at, paid_at
           FROM transactions ORDER BY created_at DESC
         ` : requestedStatus === "failed" ? await db`
           SELECT reference, name, email,
             amount_minor::numeric / 100 AS amount_ngn,
-            original_amount, original_currency, type, note, source, status,
+            original_amount, original_currency, type, note, note_public, source, status,
             created_at, paid_at
           FROM transactions WHERE status IN ('failed','reversed')
           ORDER BY created_at DESC
         ` : await db`
           SELECT reference, name, email,
             amount_minor::numeric / 100 AS amount_ngn,
-            original_amount, original_currency, type, note, source, status,
+            original_amount, original_currency, type, note, note_public, source, status,
             created_at, paid_at
           FROM transactions WHERE status = ${requestedStatus}
           ORDER BY created_at DESC
         `;
 
-        const columns = Object.keys(rows[0] || { reference: "" });
-        const csv = [
-          columns.join(","),
+        const columns = [
+          "reference", "name", "email", "amount_ngn", "original_amount",
+          "original_currency", "type", "note", "note_public", "source",
+          "status", "created_at", "paid_at"
+        ];
+        const csv = "\uFEFF" + [
+          columns.map(csvCellSafe).join(","),
           ...rows.map(row => columns.map(column => {
             const value = ["created_at", "paid_at", "updated_at"].includes(column)
               ? formatTimestampLagos(row[column])
               : row[column];
-            return `"${String(value ?? "").replace(/"/g, '""')}"`;
+            return csvCellSafe(value);
           }).join(","))
-        ].join("\n");
+        ].join("\r\n");
 
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/csv; charset=utf-8");

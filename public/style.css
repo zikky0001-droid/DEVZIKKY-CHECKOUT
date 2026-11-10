@@ -8,3 +8,10 @@
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}.reveal{opacity:1;transform:none}}
 
 @media(max-width:1050px){.menu-toggle{display:block}.nav-links{position:absolute;top:var(--header);left:0;right:0;display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:12px 16px 16px;border-bottom:1px solid var(--line);background:rgba(7,9,16,.98);backdrop-filter:blur(22px);opacity:0;visibility:hidden;transform:translateY(-10px);transition:.22s}.nav-links.open{opacity:1;visibility:visible;transform:none}.nav-links a{padding:12px 14px}.nav-links .nav-primary{margin:5px 0 0;text-align:center}}
+
+/* Admin transaction table: keep long donor notes readable without widening the page. */
+.admin-transactions-table{min-width:1280px}.admin-note-cell{white-space:normal;min-width:180px;max-width:300px;overflow-wrap:anywhere;vertical-align:top}.admin-note-cell span{display:block;white-space:pre-wrap;max-height:7em;overflow:auto;line-height:1.55}.admin-status-tools{align-items:center}.admin-status-tools .button{max-width:100%}#adminActionMessage{overflow-wrap:anywhere;line-height:1.6}#adminPanel{min-width:0;max-width:100%}#adminRows{max-width:100%;overscroll-behavior-x:contain}
+@media(max-width:680px){#adminPanel{padding:16px}.admin-status-tools{gap:7px}.admin-status-tools .button{font-size:.72rem;padding:10px 12px}.admin-transactions-table{min-width:1200px}}
+
+
+.admin-note-visibility{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border:1px solid var(--line);border-radius:999px;font-size:.72rem;font-weight:700;white-space:nowrap}.admin-note-visibility.is-public{color:#32c997;border-color:rgba(50,201,151,.3);background:rgba(50,201,151,.08)}.admin-note-visibility.is-private{color:var(--muted);background:rgba(140,150,170,.06)}

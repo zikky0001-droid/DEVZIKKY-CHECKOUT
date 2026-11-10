@@ -63,3 +63,13 @@ html[data-theme="light"] .stats-filter,html[data-theme="light"] .stats-panel,htm
 html[data-theme="light"] .stats-date-row input{background:#fff;color:var(--text);color-scheme:light}
 html[data-theme="light"] .grain-switch button,html[data-theme="light"] .stats-presets button{background:rgba(20,40,70,.035);color:var(--muted)}
 html[data-theme="light"] .stats-table-wrap th{background:rgba(20,40,70,.045)}
+
+
+.stats-panel-head-action{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
+.stats-panel-head-action>div{min-width:0;flex:1}
+.stats-panel-head-action .button{flex:0 0 auto}
+.stats-table-wrap td.public-note-cell{white-space:normal;min-width:180px;max-width:340px;overflow-wrap:anywhere;line-height:1.55}
+@media(max-width:680px){.stats-panel-head-action{align-items:stretch;flex-direction:column}.stats-panel-head-action .button{width:100%}}
+
+/* Keep long three-year daily tables usable on phones. */
+.stats-series-wrap{max-height:420px;overflow:auto;overscroll-behavior:contain}.stats-series-wrap thead th{position:sticky;top:0;z-index:2}

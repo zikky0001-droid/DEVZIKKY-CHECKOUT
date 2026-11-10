@@ -120,9 +120,25 @@ async function checkoutPage() {
 
   const currencySelect = $("#currency");
   const estimate = $("#estimate");
+  const noteInput = form.elements.note;
+  const noteCounter = $("#noteCounter");
+  const updateNoteCounter = () => {
+    if (noteInput && noteCounter) noteCounter.textContent = `${noteInput.value.length} / 200 characters`;
+  };
+  noteInput?.addEventListener("input", updateNoteCounter);
+  updateNoteCounter();
   let rateData;
+  let paymentLimits = { minimum_amount_ngn: 100, maximum_amount_ngn: 5000000 };
 
   try {
+    const limitsData = await api("payment-limits");
+    const minimum = Number(limitsData.minimum_amount_ngn);
+    const maximum = Number(limitsData.maximum_amount_ngn);
+    if (limitsData.currency !== "NGN" || !Number.isFinite(minimum) || !Number.isFinite(maximum) || minimum <= 0 || maximum < minimum) {
+      throw new Error("Payment limit configuration returned invalid values.");
+    }
+    paymentLimits = { minimum_amount_ngn: minimum, maximum_amount_ngn: maximum };
+    $("#amountLimits").textContent = `Minimum: ₦${minimum.toLocaleString("en-NG")} | Maximum: ₦${maximum.toLocaleString("en-NG")}`;
     rateData = await loadRates();
 
     const available = ["NGN", ...Object.keys(rateData.rates || {})]
@@ -188,8 +204,10 @@ async function checkoutPage() {
       const providerRate = selectedCurrency === "NGN" ? 1 : Number(currentRates[selectedCurrency]);
       const estimatedNgn = selectedCurrency === "NGN" ? enteredAmount :
         (providerRate > 0 ? enteredAmount / providerRate : NaN);
-      if (!Number.isFinite(estimatedNgn) || estimatedNgn < 100 || estimatedNgn > 5000000) {
-        throw new Error("Converted payment amount must be between ₦100 and ₦5,000,000.");
+      if (!Number.isFinite(estimatedNgn) ||
+          estimatedNgn < paymentLimits.minimum_amount_ngn ||
+          estimatedNgn > paymentLimits.maximum_amount_ngn) {
+        throw new Error(`Converted payment amount must be between ₦${paymentLimits.minimum_amount_ngn.toLocaleString("en-NG")} and ₦${paymentLimits.maximum_amount_ngn.toLocaleString("en-NG")}.`);
       }
       const result = await api("pay/initialize", {
         method: "POST",
@@ -413,8 +431,8 @@ async function statisticsPage() {
   };
   const renderRecent = rows => {
     $("#statsRecent").innerHTML = rows.length ? rows.map(row =>
-      `<tr><td>${safe(row.reference)}</td><td>${moneyNgn(row.amount_ngn)}</td><td>${safe(row.type)}</td><td>${safe(formatLagosDateTime(row.paid_at))}</td></tr>`
-    ).join("") : '<tr><td colspan="4">No verified payments in this window.</td></tr>';
+      `<tr><td>${safe(row.reference)}</td><td>${moneyNgn(row.amount_ngn)}</td><td>${safe(row.type)}</td><td>${safe(formatLagosDateTime(row.paid_at))}</td><td class="public-note-cell">${safe(row.public_note || "—")}</td></tr>`
+    ).join("") : '<tr><td colspan="5">No verified payments in this window.</td></tr>';
   };
 
   async function loadStats() {
@@ -499,7 +517,8 @@ async function statisticsPage() {
     if (!lastStats) return;
     const rows = [["period","all","success","pending","failed","successful_ngn"],
       ...(lastStats.series || []).map(row => [displayBucket(row.bucket),row.total,row.successful,row.pending,row.failed,row.successful_ngn])];
-    const csv = rows.map(row => row.map(value => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    const csvCell = value => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csv = "\uFEFF" + rows.map(row => row.map(csvCell).join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -507,8 +526,58 @@ async function statisticsPage() {
     const safeFrom = fromInput.value.replace(/\//g, "-");
     const safeTo = toInput.value.replace(/\//g, "-");
     link.download = `devzikky-pay-${grain}-statistics-${safeFrom}-to-${safeTo}.csv`;
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+  });
+
+  $("#downloadPublicTransactions").addEventListener("click", async event => {
+    const button = event.currentTarget;
+    const originalText = button.textContent;
+    const fromText = fromInput.value.trim();
+    const toText = toInput.value.trim();
+    if (!parseDmy(fromText) || !parseDmy(toText)) {
+      setHint("Enter valid dates as DD/MM/YYYY before exporting transaction details.");
+      return;
+    }
+    button.disabled = true;
+    button.textContent = "Preparing transaction CSV…";
+    try {
+      const query = `stats/export?from=${encodeURIComponent(fromText)}&to=${encodeURIComponent(toText)}`;
+      const response = await fetch(`/api/${query}`, {
+        method: "GET", credentials: "same-origin", cache: "no-store",
+        headers: { Accept: "text/csv, application/json" }
+      });
+      const requestId = response.headers.get("x-request-id");
+      if (!response.ok) {
+        const body = await response.text();
+        let payload = {};
+        try { payload = body ? JSON.parse(body) : {}; } catch { /* preserve HTTP error */ }
+        throw new Error(`${payload.error || `Export failed (HTTP ${response.status})`}${requestId ? ` · Request ID: ${requestId}` : ""}`);
+      }
+      if (!(response.headers.get("content-type") || "").includes("text/csv")) {
+        throw new Error("The server returned an unexpected export format.");
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      const disposition = response.headers.get("content-disposition") || "";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "devzikky-pay-public-transactions.csv";
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+      setHint(`Downloaded ${filename}. Public notes are included only when donors opted in.`);
+    } catch (error) {
+      setHint(`Transaction export failed: ${error.message}`);
+      console.error("[DEVZIKKY PAY] Public transaction export failed", { message: error.message });
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   });
   await loadStats();
 }
@@ -541,19 +610,82 @@ function renderAdminTransactions() {
     return activeAdminStatus === "all" || row.status === activeAdminStatus;
   });
   const labels = { all: "All transactions", success: "Successful transactions", pending: "Pending transactions", failed: "Failed / reversed transactions" };
-  $("#adminStatusSummary").textContent = `${labels[activeAdminStatus]} · ${rows.length.toLocaleString()} records. CSV export includes this status only.`;
-  $("#adminStatusDownload").href = `/api/admin/export?status=${encodeURIComponent(activeAdminStatus)}`;
-  $("#adminRows").innerHTML = buildTable(
-    ["Reference", "Name", "Email", "NGN", "Original", "Type", "Source", "Status", "Created"],
-    rows.map(row => [
-      row.reference, row.name, row.email, money(row.amount_ngn),
-      `${row.original_amount} ${row.original_currency}`, row.type, row.source,
-      row.status, formatLagosDateTime(row.created_at)
-    ])
-  );
+  $("#adminStatusSummary").textContent = `${labels[activeAdminStatus]} · ${rows.length.toLocaleString()} records. CSV export includes all matching records, not only the latest 500 shown here.`;
+  const download = $("#adminStatusDownload");
+  if (download) {
+    download.href = `/api/admin/export?status=${encodeURIComponent(activeAdminStatus)}`;
+    download.textContent = `Download ${activeAdminStatus === "all" ? "all" : activeAdminStatus} CSV ↓`;
+  }
+  const table = rows.length ? `<table class="admin-transactions-table">
+    <thead><tr>${["Reference", "Name", "Email", "NGN", "Original", "Type", "Note", "Note visibility", "Source", "Status", "Created · Lagos", "Paid · Lagos"].map(value => `<th>${escapeHtml(value)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(row => `<tr>
+      <td>${escapeHtml(row.reference)}</td>
+      <td>${escapeHtml(row.name || "—")}</td>
+      <td>${escapeHtml(row.email || "—")}</td>
+      <td>${escapeHtml(money(row.amount_ngn))}</td>
+      <td>${escapeHtml(`${row.original_amount ?? "—"} ${row.original_currency || ""}`)}</td>
+      <td>${escapeHtml(row.type || "—")}</td>
+      <td class="admin-note-cell"><span title="${escapeHtml(row.note || "")}">${escapeHtml(row.note || "—")}</span></td>
+      <td><span class="admin-note-visibility ${row.note_public ? "is-public" : "is-private"}">${row.note_public ? "🌟 Public" : "🔒 Private"}</span></td>
+      <td>${escapeHtml(row.source || "—")}</td>
+      <td>${escapeHtml(row.status || "—")}</td>
+      <td>${escapeHtml(formatLagosDateTime(row.created_at))}</td>
+      <td>${escapeHtml(formatLagosDateTime(row.paid_at))}</td>
+    </tr>`).join("")}</tbody>
+  </table>` : '<p class="table-empty">No transactions in this status.</p>';
+  $("#adminRows").innerHTML = table;
   document.querySelectorAll("[data-admin-status]").forEach(button => {
     button.classList.toggle("primary", button.dataset.adminStatus === activeAdminStatus);
+    button.setAttribute("aria-pressed", String(button.dataset.adminStatus === activeAdminStatus));
   });
+}
+
+async function downloadAdminExport(link) {
+  const message = $("#adminActionMessage");
+  const originalText = link.textContent;
+  link.setAttribute("aria-busy", "true");
+  link.textContent = "Preparing CSV…";
+  if (message) message.textContent = "";
+  try {
+    const response = await fetch(link.getAttribute("href"), {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Accept": "text/csv, application/json" }
+    });
+    const requestId = response.headers.get("x-request-id");
+    if (!response.ok) {
+      const text = await response.text();
+      let payload = {};
+      try { payload = text ? JSON.parse(text) : {}; } catch { /* non-JSON error handled below */ }
+      const detail = payload.error || `CSV export failed (HTTP ${response.status}).`;
+      if (response.status === 401) {
+        throw new Error(`${detail} Make sure you are signed in on this exact domain, then sign in again.${requestId ? ` Request ID: ${requestId}` : ""}`);
+      }
+      throw new Error(`${detail}${requestId ? ` Request ID: ${requestId}` : ""}`);
+    }
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("text/csv")) throw new Error("The export endpoint returned an unexpected content type.");
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") || "";
+    const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = filenameMatch?.[1] || "devzikky-pay-transactions.csv";
+    const objectUrl = URL.createObjectURL(blob);
+    const download = document.createElement("a");
+    download.href = objectUrl;
+    download.download = filename;
+    document.body.appendChild(download);
+    download.click();
+    download.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+    if (message) message.textContent = `Downloaded ${filename}.`;
+  } catch (error) {
+    if (message) message.textContent = error.message;
+    console.error("[DEVZIKKY PAY] Admin export failed", { message: error.message });
+  } finally {
+    link.removeAttribute("aria-busy");
+    link.textContent = originalText;
+  }
 }
 
 async function adminPage() {
@@ -574,6 +706,12 @@ async function adminPage() {
     activeAdminStatus = button.dataset.adminStatus;
     renderAdminTransactions();
   }));
+  document.querySelectorAll("[data-admin-export]").forEach(link => {
+    link.addEventListener("click", event => {
+      event.preventDefault();
+      void downloadAdminExport(link);
+    });
+  });
 
   loginForm.addEventListener("submit", async event => {
     event.preventDefault();
@@ -589,7 +727,7 @@ async function adminPage() {
       });
       loginForm.reset();
       const loaded = await showAdmin(false);
-      if (!loaded) throw new Error("Login was accepted, but admin records could not be loaded. Check Vercel logs.");
+      if (!loaded) throw new Error(message.textContent || "Login succeeded, but the transaction list could not be loaded. Check the request ID and Vercel logs.");
       message.textContent = "";
     } catch (error) {
       message.textContent = error.message;

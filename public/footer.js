@@ -11,7 +11,7 @@
     {name:'ZIKKY Calculator',type:'Web utility',url:'https://zikkycal.netlify.app'},
     {name:'ZIKKY Telegram Bot',type:'Telegram automation',url:'https://t.me/zbot101bot'},
     {name:'Phishing Edu',type:'Security awareness project',url:'https://zikkyphishing.netlify.app'},
-    {name:'DEVZIKKY PAY',type:'Checkout & platform',url:'https://devzikkycheckout.vercel.app'}
+    {name:'DEVZIKKY PAY',type:'Checkout & platform',url:'/'}
   ];
   const links = [
     {name:'GitHub',detail:'zikky0001-droid',url:'https://github.com/zikky0001-droid',icon:'⌘'},
@@ -33,7 +33,7 @@
           <a class="footer-portfolio" href="/donate">Donate &amp; Support Us ↗</a><a class="footer-portfolio" href="https://zikkytech.xo.je" target="_blank" rel="noopener noreferrer">More about DEVZIKKY <b>↗</b><small>zikkytech.xo.je</small></a>
         </div>
         <div class="footer-project-head"><div><span class="footer-kicker">PROJECT DIRECTORY</span><h3>Explore the wider ecosystem</h3><p>Projects listed in the DEVZIKKY portfolio, plus this checkout platform.</p></div><a href="/projects" class="footer-small-link">Open project directory ↗</a></div>
-        <div class="footer-project-grid">${projects.map(p => `<a class="footer-project" href="${safe(p.url)}" target="_blank" rel="noopener noreferrer"><span><strong>${safe(p.name)}</strong><small>${safe(p.type)}</small></span><b>↗</b></a>`).join('')}</div>
+        <div class="footer-project-grid">${projects.map(p => `<a class="footer-project" href="${safe(p.url)}" ${p.url.startsWith('http')?'target="_blank" rel="noopener noreferrer"':''}><span><strong>${safe(p.name)}</strong><small>${safe(p.type)}</small></span><b>↗</b></a>`).join('')}</div>
         <div class="footer-links-head"><div><span class="footer-kicker">PUBLIC LINKS</span><h3>Connect and follow the work</h3></div></div>
         <div class="footer-link-grid">${links.map(l => `<a class="footer-link" href="${safe(l.url)}" ${l.url.startsWith('mailto:')?'':'target="_blank" rel="noopener noreferrer"'}><i>${safe(l.icon)}</i><span><strong>${safe(l.name)}</strong><small>${safe(l.detail)}</small></span><b>↗</b></a>`).join('')}</div>
         <div class="footer-bottom"><div><strong>DEVZIKKY <span>PAY</span></strong><p>Payment information, project support and developer-built tools.</p></div><div class="footer-bottom-nav"><a href="/">Home</a><a href="/about">About</a><a href="/projects">Projects</a><a href="/support">Support info</a><a href="/donate">Donate &amp; Support Us</a><a href="/roadmap">Roadmap</a><a href="/faq">FAQ</a><a href="/privacy">Privacy</a><a href="/statistics">Statistics</a><a href="/api">API docs</a><a href="/control-room">Control Room</a></div><p class="footer-copy">© <span data-year>${new Date().getFullYear()}</span> DEVZIKKY TECH. Visit <a href="https://zikkytech.xo.je" target="_blank" rel="noopener noreferrer">zikkytech.xo.je</a> for the full portfolio.</p></div>
