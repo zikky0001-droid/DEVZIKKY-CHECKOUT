@@ -169,6 +169,25 @@ function formatTimestampLagos(value) {
   return `${values.day}/${values.month}/${values.year} ${values.hour}:${values.minute}:${values.second}`;
 }
 
+function formatTimestampExport(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("en-NG", {
+    timeZone: "Africa/Lagos", day: "2-digit", month: "short", year: "numeric",
+    hour: "numeric", minute: "2-digit", hourCycle: "h12"
+  }).format(date) + " WAT";
+}
+
+function exportLabel(value, kind) {
+  const labels = {
+    type: { donation: "Donation", service: "Service payment", transaction: "API transaction" },
+    source: { website: "Website", api: "API" },
+    status: { success: "Successful", pending: "Pending", failed: "Failed", reversed: "Reversed" }
+  };
+  return labels[kind]?.[String(value ?? "").toLowerCase()] || String(value ?? "");
+}
+
 function allCurrenciesPresent(rates) {
   return CURRENCIES.every(currency =>
     currency.code === "NGN" ||
@@ -1060,7 +1079,7 @@ export default async function handler(req, res) {
           amount_minor::numeric / 100 AS amount_ngn,
           original_currency,
           type,
-          to_char(COALESCE(paid_at, created_at) AT TIME ZONE 'Africa/Lagos', 'DD/MM/YYYY HH24:MI:SS') AS paid_at_lagos,
+          COALESCE(paid_at, created_at) AS paid_at_lagos,
           CASE WHEN note_public IS TRUE THEN COALESCE(note, '') ELSE '' END AS public_note
         FROM transactions
         WHERE status = 'success'
@@ -1068,10 +1087,12 @@ export default async function handler(req, res) {
             BETWEEN ${from}::date AND ${to}::date
         ORDER BY COALESCE(paid_at, created_at) DESC
       `;
-      const columns = ["reference", "amount_ngn", "original_currency", "type", "paid_at_lagos", "public_note"];
+      const columns = ["Transaction reference", "Amount (NGN)", "Original currency", "Payment type", "Payment date (Lagos)", "Donor note (public consent only)"];
       const csv = "\uFEFF" + [
         columns.map(csvCellSafe).join(","),
-        ...rows.map(row => columns.map(column => csvCellSafe(row[column])).join(","))
+        ...rows.map(row => [row.reference, Number(row.amount_ngn || 0).toFixed(2), row.original_currency,
+          exportLabel(row.type, "type"), formatTimestampExport(row.paid_at_lagos), row.public_note]
+          .map(csvCellSafe).join(","))
       ].join("\r\n");
       res.statusCode = 200;
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -1184,17 +1205,25 @@ export default async function handler(req, res) {
               ELSE created_at END AS activity_at
             FROM transactions
           ),
+          activity_buckets AS (
+            SELECT
+              date_trunc(${grain}, activity.activity_at AT TIME ZONE 'Africa/Lagos') AS bucket,
+              activity.status,
+              activity.amount_minor
+            FROM activity
+            WHERE (activity.activity_at AT TIME ZONE 'Africa/Lagos')::date
+              BETWEEN ${from}::date AND ${to}::date
+          ),
           aggregated AS (
             SELECT
-              date_trunc(${grain}, activity_at AT TIME ZONE 'Africa/Lagos') AS bucket,
+              bucket,
               COUNT(*)::int AS total,
               COUNT(*) FILTER (WHERE status = 'success')::int AS successful,
               COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
               COUNT(*) FILTER (WHERE status IN ('failed','reversed'))::int AS failed,
               COALESCE(SUM(amount_minor) FILTER (WHERE status = 'success'),0)::numeric / 100 AS successful_ngn
-            FROM activity
-            WHERE (activity_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
-            GROUP BY date_trunc(${grain}, activity_at AT TIME ZONE 'Africa/Lagos')
+            FROM activity_buckets
+            GROUP BY bucket
           )
           SELECT
             to_char(buckets.bucket, 'DD/MM/YYYY') AS bucket,
@@ -1345,19 +1374,18 @@ export default async function handler(req, res) {
           ORDER BY created_at DESC
         `;
 
-        const columns = [
-          "reference", "name", "email", "amount_ngn", "original_amount",
-          "original_currency", "type", "note", "note_public", "source",
-          "status", "created_at", "paid_at"
-        ];
+        const columns = ["Transaction reference", "Donor name", "Email address", "Amount received (NGN)",
+          "Original amount", "Original currency", "Payment type", "Donor note", "Note visibility",
+          "Payment source", "Payment status", "Created (Lagos time)", "Paid (Lagos time)"];
         const csv = "\uFEFF" + [
           columns.map(csvCellSafe).join(","),
-          ...rows.map(row => columns.map(column => {
-            const value = ["created_at", "paid_at", "updated_at"].includes(column)
-              ? formatTimestampLagos(row[column])
-              : row[column];
-            return csvCellSafe(value);
-          }).join(","))
+          ...rows.map(row => [row.reference, row.name, row.email, Number(row.amount_ngn || 0).toFixed(2),
+            row.original_amount == null ? "" : Number(row.original_amount).toFixed(2), row.original_currency,
+            exportLabel(row.type, "type"), row.note,
+            row.note_public ? "Public — donor consented" : "Private — admin only",
+            exportLabel(row.source, "source"), exportLabel(row.status, "status"),
+            formatTimestampExport(row.created_at), formatTimestampExport(row.paid_at)]
+            .map(csvCellSafe).join(","))
         ].join("\r\n");
 
         res.statusCode = 200;

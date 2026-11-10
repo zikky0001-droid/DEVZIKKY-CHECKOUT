@@ -515,8 +515,8 @@ async function statisticsPage() {
   $("#statsApply").addEventListener("click", () => void loadStats());
   $("#downloadAggregate").addEventListener("click", () => {
     if (!lastStats) return;
-    const rows = [["period","all","success","pending","failed","successful_ngn"],
-      ...(lastStats.series || []).map(row => [displayBucket(row.bucket),row.total,row.successful,row.pending,row.failed,row.successful_ngn])];
+    const rows = [["Reporting period", "All transactions", "Successful", "Pending", "Failed / reversed", "Successful value (NGN)"],
+      ...(lastStats.series || []).map(row => [displayBucket(row.bucket), row.total, row.successful, row.pending, row.failed, Number(row.successful_ngn || 0).toFixed(2)])];
     const csvCell = value => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const csv = "\uFEFF" + rows.map(row => row.map(csvCell).join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
