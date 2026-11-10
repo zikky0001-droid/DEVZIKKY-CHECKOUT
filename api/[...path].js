@@ -101,6 +101,67 @@ function dateAgeDays(dateString) {
   return (Date.now() - timestamp) / 86400000;
 }
 
+// Transaction timestamps remain TIMESTAMPTZ in Neon. Only user-facing date
+// inputs/outputs use DD/MM/YYYY; SQL filters are normalised to ISO dates.
+function parseCalendarDate(value) {
+  const input = String(value ?? "").trim();
+  let day, month, year;
+
+  // Preferred public format: DD/MM/YYYY.
+  let match = input.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (match) {
+    day = Number(match[1]);
+    month = Number(match[2]);
+    year = Number(match[3]);
+  } else {
+    // Keep ISO date support for existing API callers during migration.
+    match = input.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    year = Number(match[1]);
+    month = Number(match[2]);
+    day = Number(match[3]);
+  }
+
+  if (!Number.isInteger(year) || year < 1970 || year > 9999 ||
+      !Number.isInteger(month) || month < 1 || month > 12 ||
+      !Number.isInteger(day) || day < 1 || day > 31) return null;
+
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day);
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 ||
+      date.getUTCDate() !== day) return null;
+
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function isoDateToDmy(value) {
+  const match = String(value ?? "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value ?? "");
+}
+
+function currentLagosIsoDate() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.filter(part => part.type !== "literal")
+    .map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function formatTimestampLagos(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Lagos", day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.filter(part => part.type !== "literal")
+    .map(part => [part.type, part.value]));
+  return `${values.day}/${values.month}/${values.year} ${values.hour}:${values.minute}:${values.second}`;
+}
+
 function allCurrenciesPresent(rates) {
   return CURRENCIES.every(currency =>
     currency.code === "NGN" ||
@@ -932,23 +993,49 @@ export default async function handler(req, res) {
     }
 
     if (path === "stats" && req.method === "GET") {
-      const today = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
-      const defaultFromDate = new Date(Date.now() + 60 * 60 * 1000 - 29 * 86400000)
-        .toISOString().slice(0, 10);
-      const from = url.searchParams.get("from") || defaultFromDate;
-      const to = url.searchParams.get("to") || today;
+      const todayIso = currentLagosIsoDate();
+      const defaultFromIso = new Date(`${todayIso}T12:00:00Z`);
+      defaultFromIso.setUTCDate(defaultFromIso.getUTCDate() - 29);
+      const defaultFrom = defaultFromIso.toISOString().slice(0, 10);
+      const fromInput = url.searchParams.get("from") || isoDateToDmy(defaultFrom);
+      const toInput = url.searchParams.get("to") || isoDateToDmy(todayIso);
       const grain = url.searchParams.get("grain") || "day";
       const allowedGrains = new Set(["day", "week", "month", "year"]);
-      const datePattern = /^\\d{4}-\\d{2}-\\d{2}$/;
-      if (!datePattern.test(from) || !datePattern.test(to) || from > to ||
-          !allowedGrains.has(grain)) {
-        return sendJson(res, 400, { error: "Invalid date range or grouping. Use grain=day|week|month|year." }, requestId);
+      const from = parseCalendarDate(fromInput);
+      const to = parseCalendarDate(toInput);
+
+      if (!from || !to) {
+        log("warn", "statistics.invalid_date", {
+          from_input: fromInput, to_input: toInput, grain,
+          expected_format: "DD/MM/YYYY"
+        });
+        return sendJson(res, 400, {
+          error: "Invalid date. Enter dates as DD/MM/YYYY (for example, 10/11/2026).",
+          expected_format: "DD/MM/YYYY"
+        }, requestId);
+      }
+      if (from > to) {
+        return sendJson(res, 400, {
+          error: "The start date must be on or before the end date.",
+          expected_format: "DD/MM/YYYY"
+        }, requestId);
+      }
+      if (!allowedGrains.has(grain)) {
+        return sendJson(res, 400, {
+          error: "Invalid grouping. Choose day, week, month or year."
+        }, requestId);
+      }
+      if (to > todayIso) {
+        return sendJson(res, 400, {
+          error: "The end date cannot be in the future. Use DD/MM/YYYY."
+        }, requestId);
       }
       const rangeDays = Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
       if (!Number.isFinite(rangeDays) || rangeDays > 1096) {
-        return sendJson(res, 400, { error: "Statistics history is limited to a maximum three-year window." }, requestId);
+        return sendJson(res, 400, {
+          error: "Statistics history is limited to a maximum three-year window."
+        }, requestId);
       }
-
       const [totals, byStatus, series, byCurrency, byType, recent] = await Promise.all([
         db`
           SELECT
@@ -968,7 +1055,7 @@ export default async function handler(req, res) {
         `,
         db`
           SELECT
-            to_char(date_trunc(${grain}, created_at AT TIME ZONE 'Africa/Lagos'), 'YYYY-MM-DD') AS bucket,
+            to_char(date_trunc(${grain}, created_at AT TIME ZONE 'Africa/Lagos'), 'DD/MM/YYYY') AS bucket,
             COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE status = 'success')::int AS successful,
             COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
@@ -977,7 +1064,7 @@ export default async function handler(req, res) {
           FROM transactions
           WHERE (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
           GROUP BY 1
-          ORDER BY 1
+          ORDER BY MIN(date_trunc(${grain}, created_at AT TIME ZONE 'Africa/Lagos'))
         `,
         db`
           SELECT original_currency AS currency, COUNT(*)::int AS count,
@@ -1008,13 +1095,18 @@ export default async function handler(req, res) {
 
       const statusMap = Object.fromEntries(byStatus.map(row => [row.status, row]));
       log("info", "statistics.generated", {
-        from, to, grain,
+        from: isoDateToDmy(from), to: isoDateToDmy(to), grain,
+        from_iso: from, to_iso: to,
         successful_transactions: Number(totals[0]?.successful || 0),
         pending_transactions: Number(totals[0]?.pending || 0),
         failed_transactions: Number(totals[0]?.failed || 0)
       });
       return sendJson(res, 200, {
-        window: { from, to, grain, timezone: "Africa/Lagos", retention_years: APP_CONFIG.RETENTION_YEARS },
+        window: {
+          from: isoDateToDmy(from), to: isoDateToDmy(to),
+          from_iso: from, to_iso: to, grain,
+          timezone: "Africa/Lagos", retention_years: APP_CONFIG.RETENTION_YEARS
+        },
         totals: totals[0],
         statuses: {
           success: statusMap.success || { count: 0, total_ngn: 0 },
@@ -1078,9 +1170,12 @@ export default async function handler(req, res) {
         const columns = Object.keys(rows[0] || { reference: "" });
         const csv = [
           columns.join(","),
-          ...rows.map(row => columns.map(column =>
-            `"${String(row[column] ?? "").replace(/"/g, '""')}"`
-          ).join(","))
+          ...rows.map(row => columns.map(column => {
+            const value = ["created_at", "paid_at", "updated_at"].includes(column)
+              ? formatTimestampLagos(row[column])
+              : row[column];
+            return `"${String(value ?? "").replace(/"/g, '""')}"`;
+          }).join(","))
         ].join("\n");
 
         res.statusCode = 200;

@@ -6,6 +6,25 @@ const money = (amount, currency="NGN") =>
     maximumFractionDigits: 2
   }).format(Number(amount) || 0);
 
+// Consistent public date presentation: DD/MM/YYYY in Africa/Lagos.
+function formatIsoDateDmy(value) {
+  const match = String(value ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value ?? "—");
+}
+
+function formatLagosDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Lagos", day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.filter(part => part.type !== "literal")
+    .map(part => [part.type, part.value]));
+  return `${values.day}/${values.month}/${values.year} ${values.hour}:${values.minute}`;
+}
+
 /**
  * Centralized browser API client.
  * Logs safe request metadata to DevTools; server-side structured logs appear in Vercel.
@@ -141,12 +160,12 @@ async function checkoutPage() {
       const providerLine = code === "NGN"
         ? "NGN is the base currency"
         : `Provider rate: ₦1 = ${providerRate} ${code}`;
-      const fallbackDate = rateData.date ? ` · Snapshot date: ${rateData.date}` : "";
+      const fallbackDate = rateData.date ? ` · Snapshot date: ${formatIsoDateDmy(rateData.date)}` : "";
       estimate.textContent =
         `Estimated Paystack charge: ${money(estimateNgn, "NGN")} · ` +
         `${providerLine} · ${rateData.source}${fallbackDate}`;
     } else {
-      const fallbackDate = rateData.date ? ` · Snapshot date: ${rateData.date}` : "";
+      const fallbackDate = rateData.date ? ` · Snapshot date: ${formatIsoDateDmy(rateData.date)}` : "";
       estimate.textContent = `Rate source: ${rateData.source}${fallbackDate}`;
     }
   };
@@ -292,13 +311,38 @@ async function statisticsPage() {
     const parts = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit"
     }).formatToParts(new Date());
-    const values = Object.fromEntries(parts.filter(x => x.type !== "literal").map(x => [x.type, x.value]));
+    const values = Object.fromEntries(parts.filter(part => part.type !== "literal")
+      .map(part => [part.type, part.value]));
     return `${values.year}-${values.month}-${values.day}`;
   };
   const shiftDate = (iso, days) => {
     const date = new Date(`${iso}T12:00:00Z`);
     date.setUTCDate(date.getUTCDate() + days);
     return date.toISOString().slice(0, 10);
+  };
+  const isoToDmy = iso => {
+    const match = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : "";
+  };
+  const parseDmy = value => {
+    const match = String(value || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!match) return null;
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    const year = Number(match[3]);
+    if (year < 1970 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const date = new Date(0);
+    date.setUTCHours(0, 0, 0, 0);
+    date.setUTCFullYear(year, month - 1, day);
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+    return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  };
+  const maskDmy = input => {
+    const digits = input.value.replace(/\D/g, "").slice(0, 8);
+    let value = digits.slice(0, 2);
+    if (digits.length > 2) value += `/${digits.slice(2, 4)}`;
+    if (digits.length > 4) value += `/${digits.slice(4, 8)}`;
+    input.value = value;
   };
   const moneyNgn = value => `₦${Number(value || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const grainLabels = { day: "Daily", week: "Weekly", month: "Monthly", year: "Yearly" };
@@ -308,15 +352,26 @@ async function statisticsPage() {
   const fromInput = $("#statsFrom");
   const toInput = $("#statsTo");
   const todayISO = today();
-  fromInput.value = shiftDate(todayISO, -29);
-  toInput.value = todayISO;
-  fromInput.max = todayISO;
-  toInput.max = todayISO;
-  fromInput.min = shiftDate(todayISO, -1095);
-  toInput.min = shiftDate(todayISO, -1095);
+  const earliestISO = shiftDate(todayISO, -1095);
+  fromInput.value = isoToDmy(shiftDate(todayISO, -29));
+  toInput.value = isoToDmy(todayISO);
+  [fromInput, toInput].forEach(input => {
+    input.type = "text";
+    input.inputMode = "numeric";
+    input.autocomplete = "off";
+    input.maxLength = 10;
+    input.placeholder = "DD/MM/YYYY";
+    input.setAttribute("aria-label", `${input.id === "statsFrom" ? "Start" : "End"} date, DD/MM/YYYY`);
+    input.addEventListener("input", () => maskDmy(input));
+  });
 
   const setHint = message => { $("#statsHint").textContent = message; };
   const safe = value => escapeHtml(value);
+  const displayBucket = value => {
+    const text = String(value ?? "");
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(text)) return text;
+    return formatIsoDateDmy(text);
+  };
   const renderBreakdown = (target, rows, nameKey, countKey, amountKey) => {
     const el = $(target);
     if (!rows.length) {
@@ -349,26 +404,45 @@ async function statisticsPage() {
       const success = Number(row.successful || 0) / Math.max(1, total) * h;
       const pending = Number(row.pending || 0) / Math.max(1, total) * h;
       const failed = Number(row.failed || 0) / Math.max(1, total) * h;
-      const label = grain === "year" ? row.bucket.slice(0,4) : grain === "month" ? row.bucket.slice(0,7) : row.bucket.slice(5);
-      return `<div class="stats-bar-group" title="${safe(row.bucket)} · ${total} transactions"><div class="stats-bar-stack"><i class="stats-bar success" style="height:${success}%"></i><i class="stats-bar pending" style="height:${pending}%"></i><i class="stats-bar failed" style="height:${failed}%"></i></div><span class="stats-bar-label">${safe(label)}</span></div>`;
+      const label = displayBucket(row.bucket);
+      return `<div class="stats-bar-group" title="${safe(label)} · ${total} transactions"><div class="stats-bar-stack"><i class="stats-bar success" style="height:${success}%"></i><i class="stats-bar pending" style="height:${pending}%"></i><i class="stats-bar failed" style="height:${failed}%"></i></div><span class="stats-bar-label">${safe(label)}</span></div>`;
     }).join("");
     $("#statsSeriesRows").innerHTML = [...series].reverse().map(row =>
-      `<tr><td>${safe(row.bucket)}</td><td>${Number(row.total).toLocaleString()}</td><td>${Number(row.successful).toLocaleString()}</td><td>${Number(row.pending).toLocaleString()}</td><td>${Number(row.failed).toLocaleString()}</td><td>${moneyNgn(row.successful_ngn)}</td></tr>`
+      `<tr><td>${safe(displayBucket(row.bucket))}</td><td>${Number(row.total).toLocaleString()}</td><td>${Number(row.successful).toLocaleString()}</td><td>${Number(row.pending).toLocaleString()}</td><td>${Number(row.failed).toLocaleString()}</td><td>${moneyNgn(row.successful_ngn)}</td></tr>`
     ).join("");
   };
   const renderRecent = rows => {
     $("#statsRecent").innerHTML = rows.length ? rows.map(row =>
-      `<tr><td>${safe(row.reference)}</td><td>${moneyNgn(row.amount_ngn)}</td><td>${safe(row.type)}</td><td>${row.paid_at ? new Date(row.paid_at).toLocaleString("en-NG", { timeZone: "Africa/Lagos" }) : "—"}</td></tr>`
+      `<tr><td>${safe(row.reference)}</td><td>${moneyNgn(row.amount_ngn)}</td><td>${safe(row.type)}</td><td>${safe(formatLagosDateTime(row.paid_at))}</td></tr>`
     ).join("") : '<tr><td colspan="4">No verified payments in this window.</td></tr>';
   };
+
   async function loadStats() {
-    const from = fromInput.value;
-    const to = toInput.value;
-    if (!from || !to || from > to) {
-      setHint("Choose a valid date range.");
+    const fromText = fromInput.value.trim();
+    const toText = toInput.value.trim();
+    const fromIso = parseDmy(fromText);
+    const toIso = parseDmy(toText);
+    if (!fromIso || !toIso) {
+      setHint("Enter both dates as DD/MM/YYYY (for example, 10/11/2026). Check that the calendar dates are valid.");
+      fromInput.setAttribute("aria-invalid", String(!fromIso));
+      toInput.setAttribute("aria-invalid", String(!toIso));
       return;
     }
-    const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000;
+    fromInput.removeAttribute("aria-invalid");
+    toInput.removeAttribute("aria-invalid");
+    if (fromIso > toIso) {
+      setHint("The start date must be on or before the end date. Use DD/MM/YYYY.");
+      return;
+    }
+    if (toIso > todayISO) {
+      setHint("The end date cannot be in the future.");
+      return;
+    }
+    if (fromIso < earliestISO) {
+      setHint(`The earliest available date is ${isoToDmy(earliestISO)} (three-year history).`);
+      return;
+    }
+    const days = (Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / 86400000;
     if (days > 1096) {
       setHint("The maximum selectable history is three years.");
       return;
@@ -376,13 +450,14 @@ async function statisticsPage() {
     setHint("Updating transaction analytics…");
     $("#statsApply").disabled = true;
     try {
-      const data = await api(`stats?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&grain=${grain}`);
+      // Send the same DD/MM/YYYY format shown in the input fields.
+      const data = await api(`stats?from=${encodeURIComponent(fromText)}&to=${encodeURIComponent(toText)}&grain=${grain}`);
       lastStats = data;
       $("#statsTotal").textContent = moneyNgn(data.totals.total_ngn);
       $("#statsSuccessCount").textContent = Number(data.totals.successful || 0).toLocaleString();
       $("#statsPendingCount").textContent = Number(data.totals.pending || 0).toLocaleString();
       $("#statsFailedCount").textContent = Number(data.totals.failed || 0).toLocaleString();
-      $("#statsSuccessCaption").textContent = `${from} to ${to} · Africa/Lagos`;
+      $("#statsSuccessCaption").textContent = `${fromText} to ${toText} · Africa/Lagos`;
       $("#timelineTitle").textContent = `${grainLabels[grain]} payment activity`;
       renderStatus(data.statuses || {});
       renderSeries(data.series || []);
@@ -393,11 +468,13 @@ async function statisticsPage() {
         `<div class="type-row"><div><strong>${safe(row.currency)}</strong><small>${Number(row.count || 0).toLocaleString()} successful payments</small></div><b>${Number(row.total || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${safe(row.currency)}</b></div>`
       ).join("") : '<div class="status-row"><div><strong>No records</strong><small>No verified payments in this window.</small></div><b>0</b></div>';
       renderRecent(data.recent || []);
-      setHint(`Showing ${grainLabels[grain].toLowerCase()} aggregates from ${from} through ${to}. Updated ${new Date().toLocaleTimeString()}.`);
+      setHint(`Showing ${grainLabels[grain].toLowerCase()} aggregates from ${fromText} through ${toText}. Updated ${new Date().toLocaleTimeString()}.`);
     } catch (error) {
       setHint(`Statistics could not be loaded: ${error.message}`);
       $("#statsChart").textContent = "Statistics are temporarily unavailable.";
-      console.error("[DEVZIKKY PAY] Statistics page failed", { message: error.message });
+      console.error("[DEVZIKKY PAY] Statistics page failed", {
+        message: error.message, from: fromText, to: toText, grain
+      });
     } finally {
       $("#statsApply").disabled = false;
     }
@@ -410,8 +487,9 @@ async function statisticsPage() {
   }));
   document.querySelectorAll("[data-period]").forEach(button => button.addEventListener("click", () => {
     const days = Number(button.dataset.period);
-    toInput.value = today();
-    fromInput.value = shiftDate(toInput.value, -(days - 1));
+    const to = today();
+    toInput.value = isoToDmy(to);
+    fromInput.value = isoToDmy(shiftDate(to, -(days - 1)));
     grain = days > 400 ? "month" : days > 100 ? "week" : "day";
     document.querySelectorAll("[data-grain]").forEach(item => item.classList.toggle("active", item.dataset.grain === grain));
     void loadStats();
@@ -420,13 +498,17 @@ async function statisticsPage() {
   $("#downloadAggregate").addEventListener("click", () => {
     if (!lastStats) return;
     const rows = [["period","all","success","pending","failed","successful_ngn"],
-      ...(lastStats.series || []).map(row => [row.bucket,row.total,row.successful,row.pending,row.failed,row.successful_ngn])];
+      ...(lastStats.series || []).map(row => [displayBucket(row.bucket),row.total,row.successful,row.pending,row.failed,row.successful_ngn])];
     const csv = rows.map(row => row.map(value => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.href = url; link.download = `devzikky-pay-${grain}-statistics-${fromInput.value}-to-${toInput.value}.csv`;
-    link.click(); URL.revokeObjectURL(url);
+    link.href = url;
+    const safeFrom = fromInput.value.replace(/\//g, "-");
+    const safeTo = toInput.value.replace(/\//g, "-");
+    link.download = `devzikky-pay-${grain}-statistics-${safeFrom}-to-${safeTo}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   });
   await loadStats();
 }
@@ -466,7 +548,7 @@ function renderAdminTransactions() {
     rows.map(row => [
       row.reference, row.name, row.email, money(row.amount_ngn),
       `${row.original_amount} ${row.original_currency}`, row.type, row.source,
-      row.status, new Date(row.created_at).toLocaleString()
+      row.status, formatLagosDateTime(row.created_at)
     ])
   );
   document.querySelectorAll("[data-admin-status]").forEach(button => {
