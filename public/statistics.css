@@ -1,0 +1,65 @@
+.stats-shell{--mono:"IBM Plex Mono",ui-monospace,monospace;--cyan:#63f3ff;--green:#65f6b5;--pink:#ff729c;--violet:#a78bfa;--amber:#ffd47c;--line:rgba(133,157,211,.16);--text:#f0f4ff;--muted:#8d9bb9;--muted-2:#647391;width:min(1240px,calc(100% - 40px));margin:0 auto 70px;color:var(--text)}
+.stats-hero{min-height:235px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:48px 8px 34px;position:relative;overflow:hidden}
+.stats-eyebrow,.stats-kicker{font:10px var(--mono);letter-spacing:.16em;color:var(--cyan)}
+.stats-hero h1{font:800 clamp(38px,6vw,68px)/1.02 "Space Grotesk",sans-serif;letter-spacing:-.065em;margin:16px 0}
+.stats-hero h1 span{background:linear-gradient(100deg,var(--cyan),#b8a0ff 55%,#ff80d9);color:transparent;background-clip:text}
+.stats-hero p{max-width:720px;color:var(--muted);line-height:1.8;font-size:13px;margin:0}
+.stats-orbit{width:155px;height:155px;flex:0 0 155px;border:1px solid rgba(99,243,255,.35);border-radius:50%;display:grid;place-items:center;position:relative;box-shadow:0 0 60px rgba(99,243,255,.1),inset 0 0 40px rgba(99,243,255,.06)}
+.stats-orbit:before,.stats-orbit:after{content:"";position:absolute;inset:13px;border:1px solid rgba(167,139,250,.35);border-radius:50%;animation:statsOrbit 12s linear infinite}
+.stats-orbit:after{inset:28px;border-color:rgba(250,112,214,.35);animation-direction:reverse;animation-duration:9s}
+.stats-orbit span{font:800 36px "Space Grotesk";color:var(--cyan);text-shadow:0 0 24px rgba(99,243,255,.55)}
+@keyframes statsOrbit{to{transform:rotate(360deg)}}
+.stats-filter,.stats-panel{border:1px solid var(--line);border-radius:22px;background:linear-gradient(145deg,rgba(17,24,45,.9),rgba(8,13,27,.88));box-shadow:0 18px 55px rgba(0,0,0,.12);padding:22px;margin-bottom:16px;position:relative;overflow:hidden}
+.stats-filter:before,.stats-panel:before{content:"";position:absolute;top:0;left:0;width:130px;height:1px;background:linear-gradient(90deg,var(--cyan),transparent)}
+.stats-filter-head,.stats-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.stats-filter h2,.stats-panel h2{font:700 21px "Space Grotesk";letter-spacing:-.04em;margin:6px 0}
+.stats-panel-head p{margin:0;color:var(--muted);font-size:11px}
+.retention-note{border:1px solid rgba(101,246,181,.24);background:rgba(101,246,181,.06);color:var(--green);font:9px var(--mono);padding:8px 11px;border-radius:999px;white-space:nowrap}
+.grain-switch{display:flex;gap:7px;flex-wrap:wrap;margin:19px 0 15px}
+.grain-switch button,.stats-presets button{border:1px solid var(--line);border-radius:10px;padding:9px 14px;background:rgba(255,255,255,.025);color:var(--muted);font-size:11px;font-weight:750}
+.grain-switch button.active{border-color:rgba(99,243,255,.5);background:rgba(99,243,255,.1);color:var(--cyan)}
+.stats-date-row{display:grid;grid-template-columns:repeat(2,minmax(130px,190px)) 1fr auto;align-items:end;gap:10px}
+.stats-date-row label{display:grid;gap:6px;font:9px var(--mono);letter-spacing:.12em;color:var(--muted)}
+.stats-date-row input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;background:rgba(2,6,17,.55);color:var(--text);color-scheme:dark}
+.stats-presets{display:flex;gap:6px;flex-wrap:wrap}
+.stats-presets button{padding:9px 10px;font-size:10px}
+.stats-hint{color:var(--muted-2);font-size:10px;margin:13px 0 0}
+.stats-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}
+.stats-kpi{min-width:0;border:1px solid var(--line);border-radius:17px;padding:17px;background:linear-gradient(145deg,rgba(17,24,45,.95),rgba(9,14,29,.95));position:relative;overflow:hidden}
+.stats-kpi:after{content:"";position:absolute;width:110px;height:110px;right:-40px;top:-55px;border-radius:50%;background:var(--glow,var(--cyan));filter:blur(40px);opacity:.14}
+.stats-kpi span{display:block;color:var(--muted);font:9px var(--mono);letter-spacing:.12em}
+.stats-kpi strong{display:block;font:800 clamp(24px,3vw,34px) "Space Grotesk";letter-spacing:-.05em;margin:12px 0 4px;overflow-wrap:anywhere;color:var(--cyan)}
+.stats-kpi small{color:var(--muted-2);font-size:10px}
+.kpi-success{--glow:var(--green)}.kpi-success strong{color:var(--green)}.kpi-pending{--glow:var(--amber)}.kpi-pending strong{color:var(--amber)}.kpi-failed{--glow:var(--pink)}.kpi-failed strong{color:var(--pink)}
+.stats-panel-head{margin-bottom:17px}
+.timeline-legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:10px;margin-bottom:10px}
+.timeline-legend span{display:flex;align-items:center;gap:7px}.timeline-legend i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.success-dot{background:var(--green)}.pending-dot{background:var(--amber)}.failed-dot{background:var(--pink)}
+.stats-chart{min-height:245px;display:flex;align-items:flex-end;gap:clamp(3px,1vw,10px);padding:20px 5px 8px;border-bottom:1px solid var(--line);overflow-x:auto}
+.stats-bar-group{min-width:22px;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:220px;gap:8px}
+.stats-bar-stack{width:min(100%,42px);min-width:8px;height:190px;display:flex;flex-direction:column;justify-content:flex-end;border-radius:7px 7px 2px 2px;overflow:hidden;background:rgba(255,255,255,.025)}
+.stats-bar{display:block;width:100%;min-height:0;transition:height .35s ease}
+.stats-bar.success{background:linear-gradient(180deg,#78ffd0,#20b98a)}.stats-bar.pending{background:linear-gradient(180deg,#ffe39b,#d69a36)}.stats-bar.failed{background:linear-gradient(180deg,#ff9cb5,#d64e79)}
+.stats-bar-label{font:8px var(--mono);color:var(--muted-2);white-space:nowrap;transform:rotate(-35deg);transform-origin:center top}
+.stats-table-wrap{width:100%;overflow:auto;margin-top:17px}
+.stats-table-wrap table{width:100%;border-collapse:collapse;white-space:nowrap}
+.stats-table-wrap th{font:8px var(--mono);letter-spacing:.1em;color:var(--muted-2);text-align:left;padding:12px;background:rgba(255,255,255,.025);border-block:1px solid var(--line)}
+.stats-table-wrap td{font-size:10px;color:var(--muted);padding:12px;border-bottom:1px solid rgba(133,157,211,.08)}
+.stats-table-wrap tr:last-child td{border-bottom:0}
+.stats-lower{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+.status-breakdown,.type-breakdown{display:grid;gap:11px}
+.status-row,.type-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.018)}
+.status-row strong,.type-row strong{font:700 14px "Space Grotesk"}
+.status-row small,.type-row small{display:block;color:var(--muted-2);font-size:9px;margin-top:3px}
+.status-row b,.type-row b{font:700 13px var(--mono);color:var(--text)}
+.stats-disclaimer{color:var(--muted-2);font-size:10px;line-height:1.8;margin:18px 3px}
+.stats-panel .button{white-space:nowrap}
+@media(max-width:850px){.stats-date-row{grid-template-columns:1fr 1fr}.stats-presets{grid-column:1/-1}.stats-date-row>.button{grid-column:1/-1}.stats-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.stats-shell{width:calc(100% - 24px)}.stats-hero{min-height:0;padding:35px 2px 24px}.stats-orbit{width:75px;height:75px;flex-basis:75px;opacity:.65}.stats-orbit span{font-size:21px}.stats-orbit:before{inset:7px}.stats-orbit:after{inset:15px}.stats-filter,.stats-panel{padding:15px;border-radius:17px}.stats-filter-head,.stats-panel-head{flex-direction:column;align-items:stretch}.retention-note{align-self:flex-start}.stats-kpis{gap:8px}.stats-kpi{padding:13px;border-radius:14px}.stats-kpi strong{font-size:25px}.stats-lower{grid-template-columns:1fr}.stats-panel-head .button{width:100%}.stats-chart{min-height:210px}.stats-bar-group{height:190px}.stats-bar-stack{height:160px}}
+@media(prefers-reduced-motion:reduce){.stats-orbit:before,.stats-orbit:after{animation:none}.stats-bar{transition:none}}
+
+html[data-theme="light"] .stats-shell{--cyan:#087e83;--green:#167b5c;--pink:#be3f79;--violet:#7447b8;--amber:#946400;--line:rgba(36,54,83,.14);--text:#182236;--muted:#5c6980;--muted-2:#69768b}
+html[data-theme="light"] .stats-filter,html[data-theme="light"] .stats-panel,html[data-theme="light"] .stats-kpi{background:linear-gradient(145deg,rgba(255,255,255,.96),rgba(244,248,253,.94));box-shadow:0 14px 42px rgba(31,48,78,.07)}
+html[data-theme="light"] .stats-date-row input{background:#fff;color:var(--text);color-scheme:light}
+html[data-theme="light"] .grain-switch button,html[data-theme="light"] .stats-presets button{background:rgba(20,40,70,.035);color:var(--muted)}
+html[data-theme="light"] .stats-table-wrap th{background:rgba(20,40,70,.045)}

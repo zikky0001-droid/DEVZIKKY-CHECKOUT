@@ -5,6 +5,15 @@ export const APP_CONFIG = {
   API_EMAIL: "zikkystar0001@gmail.com",
   DEFAULT_CURRENCY: "NGN",
   RETENTION_YEARS: 3,
+
+  // Checkout guardrails (authoritative NGN amount after currency conversion).
+  MIN_PAYMENT_AMOUNT_NGN: 100,
+  MAX_PAYMENT_AMOUNT_NGN: 5000000,
+
+  // Lazy reconciliation: no Cron job. Runs opportunistically on API traffic.
+  PENDING_PAYMENT_MAX_AGE_MINUTES: 60,
+  PENDING_CLEANUP_INTERVAL_MINUTES: 10,
+  PENDING_CLEANUP_BATCH_SIZE: 5,
   RATE_SOURCE_URL: "https://theratesapi.com/api/latest?base=NGN",
   RATE_MAX_AGE_DAYS: 5,
   RATE_REFRESH_MINUTES: 60,

@@ -40,3 +40,15 @@ CREATE TABLE IF NOT EXISTS maintenance_state (
 INSERT INTO maintenance_state(task,last_run_at)
 VALUES ('transaction_retention', NULL)
 ON CONFLICT (task) DO NOTHING;
+
+-- Pending payment reconciliation state (lazy, request-driven; no Cron required).
+INSERT INTO maintenance_state(task,last_run_at)
+VALUES ('pending_reconciliation', NULL)
+ON CONFLICT (task) DO NOTHING;
+
+-- Helps bounded scans for old pending records and date-range statistics.
+CREATE INDEX IF NOT EXISTS transactions_status_created_at_idx
+  ON transactions(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS transactions_paid_at_idx
+  ON transactions(paid_at DESC)
+  WHERE status = 'success';

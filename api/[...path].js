@@ -300,6 +300,7 @@ async function getRates(db, log) {
 }
 
 async function safeLazyCleanup(db, log) {
+  // Existing three-year retention policy. Never delete recent payment history.
   try {
     const deleted = await db`
       WITH claim AS (
@@ -314,7 +315,6 @@ async function safeLazyCleanup(db, log) {
         AND EXISTS (SELECT 1 FROM claim)
       RETURNING id
     `;
-
     if (deleted.length) {
       log("info", "maintenance.retention.deleted", {
         deleted_count: deleted.length,
@@ -322,10 +322,66 @@ async function safeLazyCleanup(db, log) {
       });
     }
   } catch (error) {
-    // Maintenance must never make unrelated endpoints (including checkout/login) fail.
     log("error", "maintenance.retention.failed", {
       message: error.message,
       hint: "Check schema.sql tables maintenance_state and transactions"
+    });
+  }
+
+  // Reconcile old pending transactions against Paystack. Do not delete them.
+  try {
+    await db`
+      INSERT INTO maintenance_state(task, last_run_at)
+      VALUES ('pending_reconciliation', NULL)
+      ON CONFLICT (task) DO NOTHING
+    `;
+    const claim = await db`
+      UPDATE maintenance_state
+      SET last_run_at = NOW()
+      WHERE task = 'pending_reconciliation'
+        AND (last_run_at IS NULL OR last_run_at <
+          NOW() - (${APP_CONFIG.PENDING_CLEANUP_INTERVAL_MINUTES}::int * INTERVAL '1 minute'))
+      RETURNING task
+    `;
+    if (!claim.length) return;
+
+    const stale = await db`
+      SELECT reference
+      FROM transactions
+      WHERE status = 'pending'
+        AND created_at < NOW() -
+          (${APP_CONFIG.PENDING_PAYMENT_MAX_AGE_MINUTES}::int * INTERVAL '1 minute')
+      ORDER BY created_at ASC
+      LIMIT ${APP_CONFIG.PENDING_CLEANUP_BATCH_SIZE}
+    `;
+
+    let checked = 0;
+    let confirmed = 0;
+    await Promise.all(stale.map(async row => {
+      try {
+        const result = await verifyPayment(db, row.reference, log);
+        checked += 1;
+        if (result.status === "success" || result.status === "failed") confirmed += 1;
+      } catch (error) {
+        // A timeout/provider error is not proof of failure. Keep pending for retry.
+        log("warn", "maintenance.pending_reconciliation.deferred", {
+          reference: row.reference,
+          message: error.message
+        });
+      }
+    }));
+    if (stale.length) {
+      log("info", "maintenance.pending_reconciliation.completed", {
+        eligible_age_minutes: APP_CONFIG.PENDING_PAYMENT_MAX_AGE_MINUTES,
+        batch_size: stale.length,
+        checked,
+        resolved: confirmed
+      });
+    }
+  } catch (error) {
+    log("error", "maintenance.pending_reconciliation.failed", {
+      message: error.message,
+      hint: "Check maintenance_state and pending transaction schema"
     });
   }
 }
@@ -375,14 +431,22 @@ function hasAutomationKey(req) {
 async function paystackRequest(path, payload, method, log) {
   if (!process.env.PAYSTACK_KEY) throw new Error("PAYSTACK_KEY is not configured");
 
-  const response = await fetch(`https://api.paystack.co${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${process.env.PAYSTACK_KEY}`,
-      "Content-Type": "application/json"
-    },
-    ...(payload ? { body: JSON.stringify(payload) } : {})
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  let response;
+  try {
+    response = await fetch(`https://api.paystack.co${path}`, {
+      method,
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${process.env.PAYSTACK_KEY}`,
+        "Content-Type": "application/json"
+      },
+      ...(payload ? { body: JSON.stringify(payload) } : {})
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data.status === false) {
@@ -406,8 +470,12 @@ async function paystackRequest(path, payload, method, log) {
 
 async function initializePayment(db, details, log) {
   const amountNgn = Number(details.amountNgn);
-  if (!Number.isFinite(amountNgn) || amountNgn < 1 || amountNgn > 100000000) {
-    throw new Error("Amount must be between ₦1 and ₦100,000,000");
+  if (!Number.isFinite(amountNgn) ||
+      amountNgn < APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN ||
+      amountNgn > APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN) {
+    throw new Error(
+      `Payment amount must be between ₦${APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")} and ₦${APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")}`
+    );
   }
 
   const reference = makeReference();
@@ -434,7 +502,7 @@ async function initializePayment(db, details, log) {
       amount: String(amountMinor),
       currency: "NGN",
       reference,
-      callback_url: `${callbackBase.replace(/\/$/, "")}/?payment=return`,
+      callback_url: `${callbackBase.replace(/\/$/, "")}/thank-you?payment=return`,
       metadata: {
         custom_fields: [
           { display_name: "Payment type", variable_name: "payment_type", value: details.type },
@@ -471,7 +539,7 @@ async function initializePayment(db, details, log) {
 
 async function verifyPayment(db, reference, log) {
   const existing = await db`
-    SELECT reference, amount_minor, currency
+    SELECT reference, amount_minor, currency, type
     FROM transactions
     WHERE reference = ${reference}
     LIMIT 1
@@ -501,16 +569,24 @@ async function verifyPayment(db, reference, log) {
     throw new Error("Paystack verification details did not match the stored transaction");
   }
 
-  const status = data.status === "success"
+  const verifiedStatus = data.status === "success"
     ? "success"
-    : data.status === "failed"
+    : ["failed", "abandoned"].includes(String(data.status).toLowerCase())
       ? "failed"
       : "pending";
+
+  // A verified success is terminal for this simple checkout state machine:
+  // later delayed/non-success responses must never downgrade it.
+  const status = existing[0].status === "success" ? "success" : verifiedStatus;
 
   await db`
     UPDATE transactions
     SET status = ${status},
-        paystack_status = ${data.status},
+        paystack_status = CASE
+          WHEN status = 'success' THEN COALESCE(paystack_status, 'success')
+          WHEN ${status} = 'success' THEN 'success'
+          ELSE ${String(data.status)}
+        END,
         paid_at = CASE
           WHEN ${status} = 'success' THEN COALESCE(paid_at, NOW())
           ELSE paid_at
@@ -528,7 +604,8 @@ async function verifyPayment(db, reference, log) {
     status,
     reference,
     amount: data.amount,
-    currency: data.currency
+    currency: data.currency,
+    payment_type: existing[0].type
   };
 }
 
@@ -778,6 +855,13 @@ export default async function handler(req, res) {
       }
 
       const amountNgn = currencyCode === "NGN" ? amount : amount * ngnRate;
+      if (!Number.isFinite(amountNgn) ||
+          amountNgn < APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN ||
+          amountNgn > APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN) {
+        return sendJson(res, 400, {
+          error: `Converted amount must be between ₦${APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")} and ₦${APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")}.`
+        }, requestId);
+      }
       const payment = await initializePayment(db, {
         amountNgn,
         email: body.email.trim(),
@@ -819,8 +903,16 @@ export default async function handler(req, res) {
       }
 
       const body = await readBody(req);
+      const automationAmount = Number(body.amount);
+      if (!Number.isFinite(automationAmount) ||
+          automationAmount < APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN ||
+          automationAmount > APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN) {
+        return sendJson(res, 400, {
+          error: `Amount must be between ₦${APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")} and ₦${APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")}`
+        }, requestId);
+      }
       const payment = await initializePayment(db, {
-        amountNgn: Number(body.amount),
+        amountNgn: automationAmount,
         email: APP_CONFIG.API_EMAIL,
         name: "Anonymous",
         type: "transaction",
@@ -840,46 +932,99 @@ export default async function handler(req, res) {
     }
 
     if (path === "stats" && req.method === "GET") {
-      const [totals, byCurrency, byType, recent] = await Promise.all([
+      const today = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 10);
+      const defaultFromDate = new Date(Date.now() + 60 * 60 * 1000 - 29 * 86400000)
+        .toISOString().slice(0, 10);
+      const from = url.searchParams.get("from") || defaultFromDate;
+      const to = url.searchParams.get("to") || today;
+      const grain = url.searchParams.get("grain") || "day";
+      const allowedGrains = new Set(["day", "week", "month", "year"]);
+      const datePattern = /^\\d{4}-\\d{2}-\\d{2}$/;
+      if (!datePattern.test(from) || !datePattern.test(to) || from > to ||
+          !allowedGrains.has(grain)) {
+        return sendJson(res, 400, { error: "Invalid date range or grouping. Use grain=day|week|month|year." }, requestId);
+      }
+      const rangeDays = Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+      if (!Number.isFinite(rangeDays) || rangeDays > 1096) {
+        return sendJson(res, 400, { error: "Statistics history is limited to a maximum three-year window." }, requestId);
+      }
+
+      const [totals, byStatus, series, byCurrency, byType, recent] = await Promise.all([
         db`
-          SELECT COUNT(*) FILTER (WHERE status = 'success')::int AS successful,
+          SELECT
+            COUNT(*) FILTER (WHERE status = 'success')::int AS successful,
+            COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+            COUNT(*) FILTER (WHERE status IN ('failed','reversed'))::int AS failed,
             COALESCE(SUM(amount_minor) FILTER (WHERE status = 'success'), 0)::numeric / 100 AS total_ngn
           FROM transactions
+          WHERE (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
+        `,
+        db`
+          SELECT status, COUNT(*)::int AS count,
+            COALESCE(SUM(amount_minor),0)::numeric / 100 AS total_ngn
+          FROM transactions
+          WHERE (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
+          GROUP BY status
+        `,
+        db`
+          SELECT
+            to_char(date_trunc(${grain}, created_at AT TIME ZONE 'Africa/Lagos'), 'YYYY-MM-DD') AS bucket,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE status = 'success')::int AS successful,
+            COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+            COUNT(*) FILTER (WHERE status IN ('failed','reversed'))::int AS failed,
+            COALESCE(SUM(amount_minor) FILTER (WHERE status = 'success'),0)::numeric / 100 AS successful_ngn
+          FROM transactions
+          WHERE (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
+          GROUP BY 1
+          ORDER BY 1
         `,
         db`
           SELECT original_currency AS currency, COUNT(*)::int AS count,
             COALESCE(SUM(original_amount), 0)::numeric AS total
           FROM transactions
           WHERE status = 'success'
-          GROUP BY original_currency
-          ORDER BY count DESC
+            AND (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
+          GROUP BY original_currency ORDER BY count DESC
         `,
         db`
           SELECT type, COUNT(*)::int AS count,
             COALESCE(SUM(amount_minor), 0)::numeric / 100 AS total_ngn
           FROM transactions
           WHERE status = 'success'
+            AND (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
           GROUP BY type
         `,
         db`
           SELECT reference, amount_minor::numeric / 100 AS amount_ngn,
-            type, created_at
+            type, paid_at
           FROM transactions
           WHERE status = 'success'
-          ORDER BY paid_at DESC
+            AND (created_at AT TIME ZONE 'Africa/Lagos')::date BETWEEN ${from}::date AND ${to}::date
+          ORDER BY paid_at DESC NULLS LAST
           LIMIT 20
         `
       ]);
 
+      const statusMap = Object.fromEntries(byStatus.map(row => [row.status, row]));
       log("info", "statistics.generated", {
+        from, to, grain,
         successful_transactions: Number(totals[0]?.successful || 0),
-        currency_groups: byCurrency.length
+        pending_transactions: Number(totals[0]?.pending || 0),
+        failed_transactions: Number(totals[0]?.failed || 0)
       });
       return sendJson(res, 200, {
+        window: { from, to, grain, timezone: "Africa/Lagos", retention_years: APP_CONFIG.RETENTION_YEARS },
         totals: totals[0],
-        by_currency: byCurrency,
-        by_type: byType,
-        recent
+        statuses: {
+          success: statusMap.success || { count: 0, total_ngn: 0 },
+          pending: statusMap.pending || { count: 0, total_ngn: 0 },
+          failed: {
+            count: Number(statusMap.failed?.count || 0) + Number(statusMap.reversed?.count || 0),
+            total_ngn: Number(statusMap.failed?.total_ngn || 0) + Number(statusMap.reversed?.total_ngn || 0)
+          }
+        },
+        series, by_currency: byCurrency, by_type: byType, recent
       }, requestId);
     }
 
@@ -904,12 +1049,29 @@ export default async function handler(req, res) {
       }
 
       if (path === "admin/export" && req.method === "GET") {
-        const rows = await db`
+        const requestedStatus = url.searchParams.get("status") || "all";
+        if (!["all", "success", "pending", "failed"].includes(requestedStatus)) {
+          return sendJson(res, 400, { error: "Invalid export status" }, requestId);
+        }
+        const rows = requestedStatus === "all" ? await db`
           SELECT reference, name, email,
             amount_minor::numeric / 100 AS amount_ngn,
             original_amount, original_currency, type, note, source, status,
             created_at, paid_at
-          FROM transactions
+          FROM transactions ORDER BY created_at DESC
+        ` : requestedStatus === "failed" ? await db`
+          SELECT reference, name, email,
+            amount_minor::numeric / 100 AS amount_ngn,
+            original_amount, original_currency, type, note, source, status,
+            created_at, paid_at
+          FROM transactions WHERE status IN ('failed','reversed')
+          ORDER BY created_at DESC
+        ` : await db`
+          SELECT reference, name, email,
+            amount_minor::numeric / 100 AS amount_ngn,
+            original_amount, original_currency, type, note, source, status,
+            created_at, paid_at
+          FROM transactions WHERE status = ${requestedStatus}
           ORDER BY created_at DESC
         `;
 
@@ -923,10 +1085,10 @@ export default async function handler(req, res) {
 
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
-        res.setHeader("Content-Disposition", 'attachment; filename="devzikky-pay-transactions.csv"');
+        res.setHeader("Content-Disposition", `attachment; filename="devzikky-pay-${requestedStatus}-transactions.csv"`);
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("X-Request-ID", requestId);
-        log("info", "admin.export.completed", { rows: rows.length });
+        log("info", "admin.export.completed", { rows: rows.length, status: requestedStatus });
         return res.end(csv);
       }
     }

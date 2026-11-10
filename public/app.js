@@ -163,6 +163,15 @@ async function checkoutPage() {
 
     try {
       const values = Object.fromEntries(new FormData(form));
+      const enteredAmount = Number(values.amount);
+      const selectedCurrency = String(values.currency || "NGN").toUpperCase();
+      const currentRates = rateData?.rates || {};
+      const providerRate = selectedCurrency === "NGN" ? 1 : Number(currentRates[selectedCurrency]);
+      const estimatedNgn = selectedCurrency === "NGN" ? enteredAmount :
+        (providerRate > 0 ? enteredAmount / providerRate : NaN);
+      if (!Number.isFinite(estimatedNgn) || estimatedNgn < 100 || estimatedNgn > 5000000) {
+        throw new Error("Converted payment amount must be between ₦100 and ₦5,000,000.");
+      }
       const result = await api("pay/initialize", {
         method: "POST",
         body: JSON.stringify(values)
@@ -205,39 +214,221 @@ async function checkoutPage() {
   }
 }
 
-async function statisticsPage() {
-  if (!$("#total")) return;
+
+async function thankYouPage() {
+  const panel = document.querySelector('[data-thankyou-card]');
+  if (!panel) return;
+
+  const title = document.querySelector('[data-thankyou-title]');
+  const message = document.querySelector('[data-thankyou-message]');
+  const status = document.querySelector('[data-thankyou-status]');
+  const details = document.querySelector('[data-thankyou-details]');
+  const icon = document.querySelector('[data-thankyou-icon]');
+  const params = new URLSearchParams(window.location.search);
+  const reference = params.get('reference') || params.get('trxref');
+
+  const setState = (state, heading, copy, badge, symbol) => {
+    panel.dataset.state = state;
+    title.textContent = heading;
+    message.textContent = copy;
+    status.textContent = badge;
+    icon.textContent = symbol;
+  };
+
+  if (!reference) {
+    setState('unverified', 'We could not confirm your payment yet.',
+      'No payment reference was returned. If your account was debited, please contact support with your Paystack receipt so the transaction can be checked.',
+      'AWAITING PAYMENT REFERENCE', '…');
+    return;
+  }
+
+  setState('checking', 'Confirming your support…',
+    'Please wait while DEVZIKKY PAY verifies the transaction securely with Paystack.',
+    'VERIFYING TRANSACTION', '↻');
 
   try {
-    const data = await api("stats");
-    $("#total").textContent = money(data.totals.total_ngn);
-    $("#count").textContent = data.totals.successful;
-
-    $("#currencies").innerHTML = buildTable(
-      ["Currency", "Successful payments", "Original total"],
-      data.by_currency.map(row => [
-        row.currency,
-        row.count,
-        money(row.total, row.currency)
-      ])
-    );
-
-    $("#recent").innerHTML = buildTable(
-      ["Reference", "Amount (NGN)", "Type", "Date"],
-      data.recent.map(row => [
-        row.reference,
-        money(row.amount_ngn),
-        row.type,
-        new Date(row.created_at).toLocaleDateString()
-      ])
-    );
+    const result = await api(`pay/verify?reference=${encodeURIComponent(reference)}`);
+    if (result.status === 'success') {
+      const isDonation = result.type === 'donation';
+      setState('success', isDonation ? 'Thank you for your support!' : 'Thank you for your payment!',
+        isDonation
+          ? 'Your contribution has been verified. It helps us keep building, maintaining and improving the DEVZIKKY TECH project ecosystem.'
+          : 'Your payment has been verified successfully. We appreciate your trust in DEVZIKKY TECH.',
+        isDonation ? 'DONATION CONFIRMED' : 'PAYMENT CONFIRMED', '✓');
+      if (details) {
+        details.textContent = `${money(Number(result.amount) / 100, result.currency)} · ${reference}`;
+        details.classList.remove('hidden');
+      }
+      document.querySelectorAll('[data-celebration]').forEach(item => item.classList.add('is-celebrating'));
+      console.info('[DEVZIKKY PAY] Thank-you page confirmed payment', {
+        reference,
+        paymentType: result.type || 'unknown'
+      });
+    } else {
+      setState(result.status || 'pending', 'Your payment is not confirmed yet.',
+        'Paystack has not reported a successful payment. You can check again in a moment or contact support if you were debited.',
+        `PAYMENT ${String(result.status || 'PENDING').toUpperCase()}`, '…');
+      if (details) {
+        details.textContent = reference;
+        details.classList.remove('hidden');
+      }
+    }
   } catch (error) {
-    $("#total").textContent = "Unavailable";
-    $("#currencies").textContent = error.message;
-    console.error("[DEVZIKKY PAY] Statistics page failed", {
-      message: error.message
-    });
+    setState('unverified', 'We could not verify this payment yet.',
+      `${error.message} If you received a Paystack receipt, keep your reference and contact support before trying to pay again.`,
+      'VERIFICATION NEEDED', '!');
+    if (details) {
+      details.textContent = reference;
+      details.classList.remove('hidden');
+    }
+    console.error('[DEVZIKKY PAY] Thank-you verification failed', { message: error.message });
   }
+}
+
+async function statisticsPage() {
+  if (!$("#statsChart")) return;
+
+  const today = () => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit"
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.filter(x => x.type !== "literal").map(x => [x.type, x.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  };
+  const shiftDate = (iso, days) => {
+    const date = new Date(`${iso}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  };
+  const moneyNgn = value => `₦${Number(value || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const grainLabels = { day: "Daily", week: "Weekly", month: "Monthly", year: "Yearly" };
+  let grain = "day";
+  let lastStats = null;
+
+  const fromInput = $("#statsFrom");
+  const toInput = $("#statsTo");
+  const todayISO = today();
+  fromInput.value = shiftDate(todayISO, -29);
+  toInput.value = todayISO;
+  fromInput.max = todayISO;
+  toInput.max = todayISO;
+  fromInput.min = shiftDate(todayISO, -1095);
+  toInput.min = shiftDate(todayISO, -1095);
+
+  const setHint = message => { $("#statsHint").textContent = message; };
+  const safe = value => escapeHtml(value);
+  const renderBreakdown = (target, rows, nameKey, countKey, amountKey) => {
+    const el = $(target);
+    if (!rows.length) {
+      el.innerHTML = '<div class="status-row"><div><strong>No records</strong><small>Nothing in this date range.</small></div><b>0</b></div>';
+      return;
+    }
+    el.innerHTML = rows.map(row => `<div class="type-row"><div><strong>${safe(row[nameKey])}</strong><small>${Number(row[countKey] || 0).toLocaleString()} transactions</small></div><b>${moneyNgn(row[amountKey])}</b></div>`).join("");
+  };
+  const renderStatus = statuses => {
+    const rows = [
+      ["Successful", statuses.success, "Verified by Paystack", "var(--green)"],
+      ["Pending", statuses.pending, "Awaiting final provider status", "var(--amber)"],
+      ["Failed / reversed", statuses.failed, "Excluded from successful totals", "var(--pink)"]
+    ];
+    $("#statusBreakdown").innerHTML = rows.map(([name, item, desc, color]) =>
+      `<div class="status-row"><div><strong style="color:${color}">${name}</strong><small>${desc}</small></div><b>${Number(item?.count || 0).toLocaleString()}</b></div>`
+    ).join("");
+  };
+  const renderSeries = series => {
+    const chart = $("#statsChart");
+    const max = Math.max(1, ...series.map(x => Number(x.total || 0)));
+    if (!series.length) {
+      chart.innerHTML = "<p>No transaction activity exists in this selected window.</p>";
+      $("#statsSeriesRows").innerHTML = '<tr><td colspan="6">No records found.</td></tr>';
+      return;
+    }
+    chart.innerHTML = series.map(row => {
+      const total = Number(row.total || 0);
+      const h = Math.max(0, Math.min(100, total / max * 100));
+      const success = Number(row.successful || 0) / Math.max(1, total) * h;
+      const pending = Number(row.pending || 0) / Math.max(1, total) * h;
+      const failed = Number(row.failed || 0) / Math.max(1, total) * h;
+      const label = grain === "year" ? row.bucket.slice(0,4) : grain === "month" ? row.bucket.slice(0,7) : row.bucket.slice(5);
+      return `<div class="stats-bar-group" title="${safe(row.bucket)} · ${total} transactions"><div class="stats-bar-stack"><i class="stats-bar success" style="height:${success}%"></i><i class="stats-bar pending" style="height:${pending}%"></i><i class="stats-bar failed" style="height:${failed}%"></i></div><span class="stats-bar-label">${safe(label)}</span></div>`;
+    }).join("");
+    $("#statsSeriesRows").innerHTML = [...series].reverse().map(row =>
+      `<tr><td>${safe(row.bucket)}</td><td>${Number(row.total).toLocaleString()}</td><td>${Number(row.successful).toLocaleString()}</td><td>${Number(row.pending).toLocaleString()}</td><td>${Number(row.failed).toLocaleString()}</td><td>${moneyNgn(row.successful_ngn)}</td></tr>`
+    ).join("");
+  };
+  const renderRecent = rows => {
+    $("#statsRecent").innerHTML = rows.length ? rows.map(row =>
+      `<tr><td>${safe(row.reference)}</td><td>${moneyNgn(row.amount_ngn)}</td><td>${safe(row.type)}</td><td>${row.paid_at ? new Date(row.paid_at).toLocaleString("en-NG", { timeZone: "Africa/Lagos" }) : "—"}</td></tr>`
+    ).join("") : '<tr><td colspan="4">No verified payments in this window.</td></tr>';
+  };
+  async function loadStats() {
+    const from = fromInput.value;
+    const to = toInput.value;
+    if (!from || !to || from > to) {
+      setHint("Choose a valid date range.");
+      return;
+    }
+    const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000;
+    if (days > 1096) {
+      setHint("The maximum selectable history is three years.");
+      return;
+    }
+    setHint("Updating transaction analytics…");
+    $("#statsApply").disabled = true;
+    try {
+      const data = await api(`stats?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&grain=${grain}`);
+      lastStats = data;
+      $("#statsTotal").textContent = moneyNgn(data.totals.total_ngn);
+      $("#statsSuccessCount").textContent = Number(data.totals.successful || 0).toLocaleString();
+      $("#statsPendingCount").textContent = Number(data.totals.pending || 0).toLocaleString();
+      $("#statsFailedCount").textContent = Number(data.totals.failed || 0).toLocaleString();
+      $("#statsSuccessCaption").textContent = `${from} to ${to} · Africa/Lagos`;
+      $("#timelineTitle").textContent = `${grainLabels[grain]} payment activity`;
+      renderStatus(data.statuses || {});
+      renderSeries(data.series || []);
+      renderBreakdown("#typeBreakdown", data.by_type || [], "type", "count", "total_ngn");
+      const currencyEl = $("#currencyBreakdown");
+      const currencyRows = data.by_currency || [];
+      currencyEl.innerHTML = currencyRows.length ? currencyRows.map(row =>
+        `<div class="type-row"><div><strong>${safe(row.currency)}</strong><small>${Number(row.count || 0).toLocaleString()} successful payments</small></div><b>${Number(row.total || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${safe(row.currency)}</b></div>`
+      ).join("") : '<div class="status-row"><div><strong>No records</strong><small>No verified payments in this window.</small></div><b>0</b></div>';
+      renderRecent(data.recent || []);
+      setHint(`Showing ${grainLabels[grain].toLowerCase()} aggregates from ${from} through ${to}. Updated ${new Date().toLocaleTimeString()}.`);
+    } catch (error) {
+      setHint(`Statistics could not be loaded: ${error.message}`);
+      $("#statsChart").textContent = "Statistics are temporarily unavailable.";
+      console.error("[DEVZIKKY PAY] Statistics page failed", { message: error.message });
+    } finally {
+      $("#statsApply").disabled = false;
+    }
+  }
+
+  document.querySelectorAll("[data-grain]").forEach(button => button.addEventListener("click", () => {
+    grain = button.dataset.grain;
+    document.querySelectorAll("[data-grain]").forEach(item => item.classList.toggle("active", item === button));
+    void loadStats();
+  }));
+  document.querySelectorAll("[data-period]").forEach(button => button.addEventListener("click", () => {
+    const days = Number(button.dataset.period);
+    toInput.value = today();
+    fromInput.value = shiftDate(toInput.value, -(days - 1));
+    grain = days > 400 ? "month" : days > 100 ? "week" : "day";
+    document.querySelectorAll("[data-grain]").forEach(item => item.classList.toggle("active", item.dataset.grain === grain));
+    void loadStats();
+  }));
+  $("#statsApply").addEventListener("click", () => void loadStats());
+  $("#downloadAggregate").addEventListener("click", () => {
+    if (!lastStats) return;
+    const rows = [["period","all","success","pending","failed","successful_ngn"],
+      ...(lastStats.series || []).map(row => [row.bucket,row.total,row.successful,row.pending,row.failed,row.successful_ngn])];
+    const csv = rows.map(row => row.map(value => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = `devzikky-pay-${grain}-statistics-${fromInput.value}-to-${toInput.value}.csv`;
+    link.click(); URL.revokeObjectURL(url);
+  });
+  await loadStats();
 }
 
 function buildTable(headers, rows) {
@@ -259,6 +450,30 @@ function escapeHtml(value) {
   })[character]);
 }
 
+let adminTransactions = [];
+let activeAdminStatus = "all";
+
+function renderAdminTransactions() {
+  const rows = adminTransactions.filter(row => {
+    if (activeAdminStatus === "failed") return ["failed", "reversed"].includes(row.status);
+    return activeAdminStatus === "all" || row.status === activeAdminStatus;
+  });
+  const labels = { all: "All transactions", success: "Successful transactions", pending: "Pending transactions", failed: "Failed / reversed transactions" };
+  $("#adminStatusSummary").textContent = `${labels[activeAdminStatus]} · ${rows.length.toLocaleString()} records. CSV export includes this status only.`;
+  $("#adminStatusDownload").href = `/api/admin/export?status=${encodeURIComponent(activeAdminStatus)}`;
+  $("#adminRows").innerHTML = buildTable(
+    ["Reference", "Name", "Email", "NGN", "Original", "Type", "Source", "Status", "Created"],
+    rows.map(row => [
+      row.reference, row.name, row.email, money(row.amount_ngn),
+      `${row.original_amount} ${row.original_currency}`, row.type, row.source,
+      row.status, new Date(row.created_at).toLocaleString()
+    ])
+  );
+  document.querySelectorAll("[data-admin-status]").forEach(button => {
+    button.classList.toggle("primary", button.dataset.adminStatus === activeAdminStatus);
+  });
+}
+
 async function adminPage() {
   const loginForm = $("#loginForm");
   if (!loginForm) return;
@@ -273,35 +488,30 @@ async function adminPage() {
     toggleAdminKey.setAttribute("aria-label", reveal ? "Hide admin key" : "Show admin key");
   });
 
+  document.querySelectorAll("[data-admin-status]").forEach(button => button.addEventListener("click", () => {
+    activeAdminStatus = button.dataset.adminStatus;
+    renderAdminTransactions();
+  }));
+
   loginForm.addEventListener("submit", async event => {
     event.preventDefault();
     const message = $("#loginMessage");
     const button = loginForm.querySelector('button[type="submit"], button');
     const originalText = button.textContent;
-
     button.disabled = true;
     message.textContent = "Signing in…";
-
     try {
       await api("admin/login", {
         method: "POST",
         body: JSON.stringify({ key: loginForm.elements.key.value })
       });
-
       loginForm.reset();
       const loaded = await showAdmin(false);
-
-      if (!loaded) {
-        throw new Error("Login was accepted, but the admin data could not be loaded. Check the request ID and Vercel logs.");
-      }
-
+      if (!loaded) throw new Error("Login was accepted, but admin records could not be loaded. Check Vercel logs.");
       message.textContent = "";
-      console.info("[DEVZIKKY PAY] Admin dashboard opened");
     } catch (error) {
       message.textContent = error.message;
-      console.error("[DEVZIKKY PAY] Admin sign-in failed", {
-        message: error.message
-      });
+      console.error("[DEVZIKKY PAY] Admin sign-in failed", { message: error.message });
     } finally {
       button.disabled = false;
       button.textContent = originalText;
@@ -313,54 +523,30 @@ async function adminPage() {
       await api("admin/logout", { method: "POST", body: "{}" });
       $("#adminPanel").classList.add("hidden");
       $("#loginPanel").classList.remove("hidden");
-      console.info("[DEVZIKKY PAY] Admin signed out");
+      adminTransactions = [];
     } catch (error) {
       $("#loginMessage").textContent = error.message;
-      console.error("[DEVZIKKY PAY] Admin logout failed", {
-        message: error.message
-      });
     }
   });
-
-  // A 401 here simply means the visitor has not logged in yet.
   await showAdmin(true);
 }
 
 async function showAdmin(quiet = false) {
   try {
     const data = await api("admin/transactions");
-    $("#adminRows").innerHTML = buildTable(
-      ["Reference", "Name", "Email", "NGN", "Original", "Type", "Source", "Status", "Created"],
-      data.transactions.map(row => [
-        row.reference,
-        row.name,
-        row.email,
-        money(row.amount_ngn),
-        `${row.original_amount} ${row.original_currency}`,
-        row.type,
-        row.source,
-        row.status,
-        new Date(row.created_at).toLocaleString()
-      ])
-    );
-
+    adminTransactions = Array.isArray(data.transactions) ? data.transactions : [];
+    renderAdminTransactions();
     $("#loginPanel").classList.add("hidden");
     $("#adminPanel").classList.remove("hidden");
-    console.info("[DEVZIKKY PAY] Admin transactions loaded", {
-      count: data.transactions.length
-    });
+    console.info("[DEVZIKKY PAY] Admin transactions loaded", { count: adminTransactions.length });
     return true;
   } catch (error) {
     if (!quiet) $("#loginMessage").textContent = error.message;
-    if (error.message.includes("request ID")) {
-      console.error("[DEVZIKKY PAY] Admin data load failed", {
-        message: error.message
-      });
-    }
     return false;
   }
 }
 
 checkoutPage();
+thankYouPage();
 statisticsPage();
 adminPage();

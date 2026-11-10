@@ -1,5 +1,5 @@
 // Explicit Vercel function entry point for /api/pay/initialize.
-// Routes the request through the shared API handler.
+// Keep payment validation and Paystack logic centralized in the shared API router.
 import handler from "../[...path].js";
 
 export const config = { api: { bodyParser: false } };
