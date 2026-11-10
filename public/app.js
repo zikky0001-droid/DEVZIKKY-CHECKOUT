@@ -612,12 +612,17 @@ function renderAdminTransactions() {
   const labels = { all: "All transactions", success: "Successful transactions", pending: "Pending transactions", failed: "Failed / reversed transactions" };
   const summary = $("#adminStatusSummary");
   if (summary) {
-    summary.textContent = `${labels[activeAdminStatus]} · ${rows.length.toLocaleString()} records. CSV export includes all matching records, not only the latest 500 shown here.`;
+    summary.textContent = `${labels[activeAdminStatus]} · ${rows.length.toLocaleString()} records. CSV and structured JSON exports include all matching records, not only the latest 500 shown here.`;
   }
   const download = $("#adminStatusDownload");
   if (download) {
-    download.href = `/api/admin/export?status=${encodeURIComponent(activeAdminStatus)}`;
+    download.href = `/api/admin/export?status=${encodeURIComponent(activeAdminStatus)}&format=csv`;
     download.textContent = `Download ${activeAdminStatus === "all" ? "all" : activeAdminStatus} CSV ↓`;
+  }
+  const jsonDownload = $("#adminStatusJsonDownload");
+  if (jsonDownload) {
+    jsonDownload.href = `/api/admin/export?status=${encodeURIComponent(activeAdminStatus)}&format=json`;
+    jsonDownload.textContent = `Download ${activeAdminStatus === "all" ? "all" : activeAdminStatus} JSON ↓`;
   }
   const table = rows.length ? `<table class="admin-transactions-table">
     <thead><tr>${["Reference", "Name", "Email", "NGN", "Original", "Type", "Note", "Note visibility", "Source", "Status", "Created · Lagos", "Paid · Lagos"].map(value => `<th>${escapeHtml(value)}</th>`).join("")}</tr></thead>

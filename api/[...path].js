@@ -1374,6 +1374,67 @@ export default async function handler(req, res) {
           ORDER BY created_at DESC
         `;
 
+        const exportFormat = String(url.searchParams.get("format") || "csv").toLowerCase();
+        if (!["csv", "json"].includes(exportFormat)) {
+          return sendJson(res, 400, { error: "Unsupported export format. Use csv or json." }, requestId);
+        }
+
+        if (exportFormat === "json") {
+          const formatJsonLagos = value => {
+            if (!value) return null;
+            const date = new Date(value);
+            if (!Number.isFinite(date.getTime())) return null;
+            const parts = new Intl.DateTimeFormat("en-CA", {
+              timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit",
+              hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+            }).formatToParts(date);
+            const fields = Object.fromEntries(parts.filter(part => part.type !== "literal")
+              .map(part => [part.type, part.value]));
+            return `${fields.year}-${fields.month}-${fields.day} ${fields.hour}:${fields.minute}:${fields.second}`;
+          };
+          const payload = {
+            export: {
+              application: "DEVZIKKY PAY",
+              report: "Transaction records",
+              generated_at_lagos: formatJsonLagos(new Date()),
+              timezone: "Africa/Lagos",
+              status_filter: requestedStatus,
+              record_count: rows.length
+            },
+            transactions: rows.map(row => ({
+              transaction: {
+                reference: row.reference,
+                payment_type: exportLabel(row.type, "type"),
+                payment_source: exportLabel(row.source, "source"),
+                status: exportLabel(row.status, "status")
+              },
+              donor: {
+                name: row.name || null,
+                email: row.email || null,
+                note: row.note || null,
+                note_visibility: row.note_public ? "public" : "private"
+              },
+              amounts: {
+                received_ngn: Number(row.amount_ngn || 0),
+                original_amount: row.original_amount == null ? null : Number(row.original_amount),
+                original_currency: row.original_currency || null
+              },
+              timestamps: {
+                created_at_lagos: formatJsonLagos(row.created_at),
+                paid_at_lagos: formatJsonLagos(row.paid_at)
+              }
+            }))
+          };
+          const json = JSON.stringify(payload, null, 2) + "\n";
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.setHeader("Content-Disposition", `attachment; filename="devzikky-pay-${requestedStatus}-transactions.json"`);
+          res.setHeader("Cache-Control", "no-store");
+          res.setHeader("X-Request-ID", requestId);
+          log("info", "admin.export.completed", { rows: rows.length, status: requestedStatus, format: "json" });
+          return res.end(json);
+        }
+
         const columns = ["Transaction reference", "Donor name", "Email address", "Amount received (NGN)",
           "Original amount", "Original currency", "Payment type", "Donor note", "Note visibility",
           "Payment source", "Payment status", "Created (Lagos time)", "Paid (Lagos time)"];
