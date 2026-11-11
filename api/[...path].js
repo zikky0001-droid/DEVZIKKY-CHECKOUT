@@ -625,77 +625,88 @@ function safeRuntimePath(value) {
   return redactLogText(raw.split(/[?#]/, 1)[0], 500);
 }
 
-function parseVercelRuntimeLogText(text) {
-  const body = String(text || "").trim();
-  if (!body) return [];
-  try {
-    const parsed = JSON.parse(body);
-    if (Array.isArray(parsed)) return parsed;
-    if (Array.isArray(parsed.logs)) return parsed.logs;
-    if (Array.isArray(parsed.data)) return parsed.data;
-    if (parsed && typeof parsed === "object" &&
-        (parsed.timestampInMs || parsed.requestPath || parsed.message || parsed.rowId)) return [parsed];
-  } catch { /* Runtime log streams may be NDJSON instead of one JSON document. */ }
-
-  const rows = [];
-  for (const line of body.split(/\r?\n/)) {
-    const value = line.trim();
-    if (!value) continue;
-    try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) rows.push(...parsed);
-      else if (parsed && typeof parsed === "object") rows.push(parsed);
-    } catch { /* Ignore non-JSON stream framing lines. */ }
+function parseRuntimeTimestamp(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 0 && value < 100000000000 ? value * 1000 : value;
   }
-  return rows;
+  if (typeof value === "string" && value.trim()) {
+    const text = value.trim();
+    if (/^\d+(?:\.\d+)?$/.test(text)) {
+      const numeric = Number(text);
+      return numeric > 0 && numeric < 100000000000 ? numeric * 1000 : numeric;
+    }
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 }
 
 function normalizeVercelRuntimeLog(entry, deployment) {
-  const rawTimestamp = Number(entry?.timestampInMs ?? entry?.timestamp ?? entry?.createdAt ?? entry?.created ?? 0);
-  const timestampMs = Number.isFinite(rawTimestamp)
-    ? (rawTimestamp > 0 && rawTimestamp < 100000000000 ? rawTimestamp * 1000 : rawTimestamp)
-    : 0;
-  const status = Number(entry?.responseStatusCode ?? entry?.statusCode ?? entry?.payload?.statusCode ?? 0) || null;
+  const timestampMs = parseRuntimeTimestamp(
+    entry?.timestampInMs ?? entry?.timestamp ?? entry?.createdAt ?? entry?.created
+  );
+  const attributes = entry?.attributes && typeof entry.attributes === "object"
+    ? entry.attributes : {};
+  const rawStatus = entry?.responseStatusCode ?? entry?.statusCode ?? entry?.httpStatus ??
+    attributes.responseStatusCode ?? attributes.statusCode ?? attributes.httpStatus;
+  const status = Number(rawStatus) || null;
   let level = String(entry?.level || "info").toLowerCase();
   if (level === "fatal") level = "error";
   if (level === "warn") level = "warning";
-  if (!(["debug", "info", "warning", "warn", "error"].includes(level))) {
+  if (level === "trace") level = "debug";
+  if (!("debug info warning error".split(" ").includes(level))) {
     level = status >= 500 ? "error" : status >= 400 ? "warning" : "info";
   }
   if (status >= 500 && level === "info") level = "error";
   else if (status >= 400 && level === "info") level = "warning";
-  const requestPath = safeRuntimePath(entry?.requestPath || entry?.payload?.proxy?.path || "");
-  const method = redactLogText(entry?.requestMethod || entry?.payload?.proxy?.method || "", 16);
-  const requestId = redactLogText(entry?.requestId || entry?.payload?.requestId || "", 160);
-  const message = redactLogText(entry?.message || entry?.payload?.text || entry?.text || "Runtime event", 6000);
+
+  const deploymentId = String(entry?.deploymentId || deployment.uid);
   return {
     timestamp_ms: timestampMs || null,
     level,
-    message,
+    message: redactLogText(entry?.message || entry?.text || "Runtime event", 6000),
     domain: redactLogText(entry?.domain || entry?.host || "", 200),
-    method,
-    path: requestPath,
+    method: redactLogText(entry?.requestMethod || entry?.method || "", 16),
+    path: safeRuntimePath(entry?.requestPath || entry?.path || ""),
     status_code: status,
-    request_id: requestId,
-    source: redactLogText(entry?.source || entry?.type || "function", 80),
+    request_id: redactLogText(entry?.requestId || "", 160),
+    source: redactLogText(entry?.source || "function", 80),
+    service: redactLogText(entry?.service || "", 120),
+    region: redactLogText(entry?.region || "", 80),
+    runtime: redactLogText(entry?.runtime || "", 80),
+    stream: redactLogText(entry?.stream || "", 40),
+    branch: redactLogText(entry?.branch || "", 160),
+    trace_id: redactLogText(entry?.traceId || "", 160),
+    span_id: redactLogText(entry?.spanId || "", 160),
+    is_system_log: entry?.isSystemLog === true,
+    environment: redactLogText(entry?.environment || "", 40),
     row_id: redactLogText(entry?.rowId || entry?.id || "", 160),
-    message_truncated: entry?.messageTruncated === true || entry?.messageTruncated === "true",
-    deployment_id: deployment.uid,
+    message_truncated: entry?.truncated === true || entry?.messageTruncated === true,
+    deployment_id: redactLogText(deploymentId, 160),
     deployment_url: redactLogText(deployment.url || "", 250)
   };
 }
 
-async function fetchVercelApi(url, timeoutMs = 18000) {
+async function fetchVercelApi(url, options = {}) {
+  const {
+    method = "GET",
+    body,
+    headers = {},
+    timeoutMs = 20000
+  } = options;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
-      method: "GET",
+      method,
       signal: controller.signal,
       headers: {
         Authorization: `Bearer ${process.env.VERCEL_ACCESS_TOKEN}`,
-        Accept: "application/json, application/x-ndjson, text/plain"
-      }
+        Accept: "application/json",
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...headers
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {})
     });
     const text = await response.text();
     if (!response.ok) {
@@ -706,7 +717,7 @@ async function fetchVercelApi(url, timeoutMs = 18000) {
     return text;
   } catch (error) {
     if (error?.name === "AbortError") {
-      const timeoutError = new Error("Vercel API request timed out");
+      const timeoutError = new Error("Vercel Observability API request timed out");
       timeoutError.isTimeout = true;
       throw timeoutError;
     }
@@ -716,7 +727,7 @@ async function fetchVercelApi(url, timeoutMs = 18000) {
   }
 }
 
-async function getVercelRuntimeLogs(requestedLimit, requestId, log) {
+async function getVercelRuntimeLogs(requestedLimit, forceRefresh, requestId, log) {
   const token = process.env.VERCEL_ACCESS_TOKEN || "";
   const projectId = process.env.VERCEL_PROJECT_ID || "";
   const teamId = process.env.VERCEL_TEAM_ID || "";
@@ -735,14 +746,19 @@ async function getVercelRuntimeLogs(requestedLimit, requestId, log) {
 
   const limit = Math.max(1, Math.min(100, Number.parseInt(requestedLimit, 10) || 100));
   const now = Date.now();
-  if (vercelLogsCache && now < vercelLogsCacheUntil) {
+  if (!forceRefresh && vercelLogsCache && now < vercelLogsCacheUntil) {
     const cachedLogs = vercelLogsCache.logs.slice(0, limit);
     const cached = { ...vercelLogsCache, count: cachedLogs.length, logs: cachedLogs, cache: "warm-instance" };
     log("info", "admin.logs.cache_hit", { count: cached.logs.length });
     return sendJson(requestId.res, 200, cached, requestId.id);
   }
 
+  const historyHours = 1;
+  const queryEnd = new Date(now);
+  const queryStart = new Date(now - historyHours * 60 * 60 * 1000);
+
   try {
+    // Keep the deployment scope selected for this monitor: newest production deployment.
     const deploymentUrl = new URL("https://api.vercel.com/v7/deployments");
     deploymentUrl.searchParams.set("projectId", projectId);
     deploymentUrl.searchParams.set("target", "production");
@@ -753,102 +769,151 @@ async function getVercelRuntimeLogs(requestedLimit, requestId, log) {
     const deploymentPayload = JSON.parse(deploymentsText);
     const deployments = (Array.isArray(deploymentPayload.deployments) ? deploymentPayload.deployments : [])
       .filter(item => item && (item.uid || item.id) && (!item.target || item.target === "production"))
-      .sort((a, b) => Number(b.createdAt || b.created || 0) - Number(a.createdAt || a.created || 0))
+      .sort((a, b) =>
+        parseRuntimeTimestamp(b.createdAt ?? b.created) -
+        parseRuntimeTimestamp(a.createdAt ?? a.created)
+      )
       .slice(0, 1)
       .map(item => ({
         uid: String(item.uid || item.id),
         url: String(item.url || ""),
-        created_at: Number(item.createdAt || item.created || 0),
+        created_at: parseRuntimeTimestamp(item.createdAt ?? item.created),
         state: String(item.readyState || item.state || "unknown"),
         target: String(item.target || "production")
       }));
 
     if (!deployments.length) {
       const empty = {
-        ok: true, source: "vercel-runtime-logs", fetched_at: new Date().toISOString(),
-        limit, count: 0, deployments_scanned: 0, partial: false, logs: []
+        ok: true,
+        source: "vercel-observability-events",
+        fetched_at: new Date().toISOString(),
+        history_hours: historyHours,
+        since: queryStart.toISOString(),
+        until: queryEnd.toISOString(),
+        limit,
+        count: 0,
+        deployments_scanned: 0,
+        has_more: false,
+        partial: false,
+        logs: []
       };
       vercelLogsCache = empty;
       vercelLogsCacheUntil = Date.now() + 10000;
       return sendJson(requestId.res, 200, empty, requestId.id);
     }
 
-    // The selected deployment is the newest production deployment only.
-    // Avoid fan-out requests: older deployments are not scanned automatically.
     const deployment = deployments[0];
-    let rows = [];
-    try {
-      const logsUrl = new URL(
-        `https://api.vercel.com/v1/projects/${encodeURIComponent(projectId)}/deployments/${encodeURIComponent(deployment.uid)}/runtime-logs`
-      );
-      logsUrl.searchParams.set("teamId", teamId);
-      logsUrl.searchParams.set("limit", String(limit));
-      const logsUntil = new Date();
-      const logsSince = new Date(logsUntil.getTime() - 24 * 60 * 60 * 1000);
-      logsUrl.searchParams.set("since", logsSince.toISOString());
-      logsUrl.searchParams.set("until", logsUntil.toISOString());
-      const text = await fetchVercelApi(logsUrl.toString(), 18000);
-      rows = parseVercelRuntimeLogText(text);
-    } catch (error) {
-      log("warn", "admin.logs.deployment_fetch_failed", {
-        deployment_id: deployment.uid,
-        upstream_status: error.upstreamStatus || null,
-        error_name: error.name || "Error",
-        timed_out: error.isTimeout === true,
-        message: redactLogText(error.message, 300)
-      });
-      throw error;
-    }
-    const results = [{ deployment, rows, error: null }];
+    const eventsUrl = new URL("https://api.vercel.com/v1/observability/events");
+    eventsUrl.searchParams.set("teamId", teamId);
+    const quoteFilterValue = value => JSON.stringify(String(value));
+    const filter = [
+      `deploymentId:${quoteFilterValue(deployment.uid)}`,
+      `environment:${quoteFilterValue("production")}`
+    ].map(clause => `(${clause})`).join(" AND ");
+    const queryBody = {
+      event: "vercel.log",
+      scope: {
+        ownerId: teamId,
+        projectIds: [projectId]
+      },
+      timeRange: {
+        start: queryStart.toISOString(),
+        end: queryEnd.toISOString()
+      },
+      filter,
+      select: [
+        "projectId", "requestId", "branch", "deploymentId", "domain",
+        "environment", "requestPath", "requestMethod", "source", "service",
+        "isSystemLog", "region", "runtime", "level", "message", "stream",
+        "traceId", "spanId", "attributes", "truncated"
+      ],
+      order: "desc",
+      limit
+    };
 
-    const normalized = results.flatMap(result => result.rows.map(row => normalizeVercelRuntimeLog(row, result.deployment)));
+    // This is the same bounded Observability Events query used by Vercel's own CLI.
+    // Unlike /runtime-logs, it supports a historical time range and returns a finite page.
+    const eventsText = await fetchVercelApi(eventsUrl.toString(), {
+      method: "POST",
+      body: queryBody,
+      headers: { "x-vercel-observability-query-reason": "cli/logs-runtime" },
+      timeoutMs: 20000
+    });
+    let eventsPayload;
+    try {
+      eventsPayload = JSON.parse(eventsText);
+    } catch {
+      throw new Error("Vercel Observability API returned invalid JSON");
+    }
+    if (!eventsPayload || !Array.isArray(eventsPayload.events)) {
+      throw new Error("Vercel Observability API returned an unexpected events response");
+    }
+
+    const rawRows = eventsPayload.events.slice(0, limit);
+    const normalized = rawRows
+      .map(row => normalizeVercelRuntimeLog(row, deployment))
+      .filter(row => row.timestamp_ms &&
+        row.timestamp_ms >= queryStart.getTime() &&
+        row.timestamp_ms <= queryEnd.getTime() &&
+        row.deployment_id === deployment.uid &&
+        (!row.environment || row.environment === "production"))
+      .sort((a, b) => Number(b.timestamp_ms || 0) - Number(a.timestamp_ms || 0));
     const seen = new Set();
     const unique = normalized.filter(row => {
       const identity = row.row_id || `${row.deployment_id}:${row.timestamp_ms}:${row.request_id}:${row.path}:${row.message}`;
       if (seen.has(identity)) return false;
       seen.add(identity);
       return true;
-    }).sort((a, b) => Number(b.timestamp_ms || 0) - Number(a.timestamp_ms || 0)).slice(0, 100);
+    }).slice(0, limit);
 
     const payload = {
       ok: true,
-      source: "vercel-runtime-logs",
+      source: "vercel-observability-events",
       fetched_at: new Date().toISOString(),
-      timezone: "UTC timestamps from Vercel; display in Africa/Lagos",
+      timezone: "Vercel timestamps are UTC; display in Africa/Lagos",
+      history_hours: historyHours,
+      since: queryStart.toISOString(),
+      until: queryEnd.toISOString(),
       limit,
-      count: Math.min(unique.length, limit),
+      count: unique.length,
       deployments_scanned: deployments.length,
       deployments: deployments.map(({ uid, url, created_at, state, target }) => ({
         id: uid, url, created_at, state, target
       })),
-      partial: results.some(result => Boolean(result.error)),
-      logs: unique.slice(0, limit)
+      has_more: eventsPayload.pagination?.hasMore === true,
+      partial: false,
+      logs: unique
     };
-    vercelLogsCache = { ...payload, limit: 100, count: unique.length, logs: unique };
+    vercelLogsCache = payload;
     vercelLogsCacheUntil = Date.now() + 15000;
     log("info", "admin.logs.fetch_completed", {
       count: payload.count,
       deployments_scanned: payload.deployments_scanned,
-      partial: payload.partial
+      history_hours: historyHours,
+      has_more: payload.has_more
     });
     return sendJson(requestId.res, 200, payload, requestId.id);
   } catch (error) {
     log("error", "admin.logs.fetch_failed", {
       upstream_status: error.upstreamStatus || null,
       error_name: error.name || "Error",
+      timed_out: error.isTimeout === true,
       message: redactLogText(error.message, 500)
     });
     const status = error.isTimeout ? 504
       : error.upstreamStatus === 429 ? 503
+      : error.upstreamStatus ? (error.upstreamStatus >= 400 && error.upstreamStatus < 500 ? error.upstreamStatus : 502)
       : 502;
     return sendJson(requestId.res, status, {
       error: error.isTimeout
-        ? "Vercel runtime log retrieval timed out. Your Logs session is still valid; please refresh shortly."
+        ? "Vercel Observability query timed out. Your Runtime Logs session is still valid; use refresh to retry."
         : error.upstreamStatus === 401 || error.upstreamStatus === 403
           ? "Vercel rejected the access token or its project permissions. Check the token and team access."
           : error.upstreamStatus === 429
             ? "Vercel is rate-limiting log requests. Please wait before refreshing."
-            : "Vercel runtime logs could not be loaded. Check the server-side Vercel function logs for details."
+            : error.upstreamStatus === 404
+              ? "Vercel could not find the project or deployment for this log query. Check VERCEL_PROJECT_ID and team access."
+              : "Vercel runtime logs could not be loaded. Check the server-side Vercel function logs for details."
     }, requestId.id);
   }
 }
@@ -1274,7 +1339,8 @@ export default async function handler(req, res) {
         res.setHeader("Allow", "GET");
         return sendJson(res, 405, { error: "Method not allowed. Use GET." }, requestId);
       }
-      return await getVercelRuntimeLogs(url.searchParams.get("limit"), { res, id: requestId }, log);
+      const forceRefresh = ["1", "true"].includes(String(url.searchParams.get("refresh") || "").toLowerCase());
+      return await getVercelRuntimeLogs(url.searchParams.get("limit"), forceRefresh, { res, id: requestId }, log);
     }
 
     // Gate every remaining Admin endpoint before Neon initialization or lazy maintenance.

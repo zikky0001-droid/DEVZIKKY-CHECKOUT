@@ -924,10 +924,26 @@ async function logsPage() {
   const searchInput = $("#logsSearch");
   let allLogs = [];
   let isLoading = false;
+  let autoRefreshInterval = null;
+  const AUTO_REFRESH_MS = 60 * 1000;
+  const refreshButton = $("#logsRefresh");
   const loginSubmit = loginForm.querySelector('button[type="submit"]');
   if (loginSubmit) loginSubmit.disabled = true;
 
+  const stopAutoRefresh = () => {
+    if (autoRefreshInterval !== null) {
+      window.clearInterval(autoRefreshInterval);
+      autoRefreshInterval = null;
+    }
+  };
+  const startAutoRefresh = () => {
+    if (autoRefreshInterval !== null) return;
+    autoRefreshInterval = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") void loadLogs(true, true);
+    }, AUTO_REFRESH_MS);
+  };
   const showLogin = message => {
+    stopAutoRefresh();
     logsPanel.classList.add("hidden");
     loginPanel.classList.remove("hidden");
     if (message && loginMessage) loginMessage.textContent = message;
@@ -935,6 +951,7 @@ async function logsPage() {
   const showWorkspace = () => {
     loginPanel.classList.add("hidden");
     logsPanel.classList.remove("hidden");
+    startAutoRefresh();
   };
   const lagosTime = value => {
     const date = new Date(Number(value));
@@ -970,7 +987,8 @@ async function logsPage() {
     }
     logsList.innerHTML = filtered.map(item => {
       const severity = String(item.level || "info").toLowerCase();
-      const statusCode = item.status_code == null ? "—" : String(item.status_code);
+      const statusCode = item.status_code == null ? "LOG" : String(item.status_code);
+      const statusClass = item.status_code == null ? "neutral" : Number(statusCode) >= 500 ? "error" : Number(statusCode) >= 400 ? "warning" : "ok";
       const method = escapeHtml(item.method || "—");
       const route = escapeHtml(item.path || "(no request path)");
       const message = escapeHtml(item.message || "Runtime event");
@@ -978,41 +996,60 @@ async function logsPage() {
       const deployment = escapeHtml(item.deployment_id || "Unknown deployment");
       const source = escapeHtml(item.source || "function");
       const domain = escapeHtml(item.domain || "");
-      return `<article class="runtime-log-card level-${escapeHtml(severity)}"><div class="runtime-log-top"><span class="runtime-level">${escapeHtml(severity.toUpperCase())}</span><time>${escapeHtml(lagosTime(item.timestamp_ms))}</time><span class="runtime-status status-${Number(statusCode) >= 500 ? "error" : Number(statusCode) >= 400 ? "warning" : "ok"}">${escapeHtml(statusCode)}</span></div><div class="runtime-log-route"><span class="runtime-method">${method}</span><code>${route}</code></div><p class="runtime-log-message">${message}</p><div class="runtime-log-meta"><span>${domain || source}</span><span>Request: ${requestId}</span></div><details><summary>Deployment and event details</summary><dl><dt>Deployment</dt><dd>${deployment}</dd><dt>Source</dt><dd>${source}</dd><dt>Request ID</dt><dd>${requestId}</dd><dt>Raw timestamp</dt><dd>${escapeHtml(item.timestamp_ms || "—")}</dd></dl></details></article>`;
+      const service = escapeHtml(item.service || "Not provided");
+      const region = escapeHtml(item.region || "Not provided");
+      const runtime = escapeHtml(item.runtime || "Not provided");
+      const stream = escapeHtml(item.stream || "Not provided");
+      const branch = escapeHtml(item.branch || "Not provided");
+      const traceId = escapeHtml(item.trace_id || "Not provided");
+      return `<article class="runtime-log-card level-${escapeHtml(severity)}"><div class="runtime-log-top"><span class="runtime-level">${escapeHtml(severity.toUpperCase())}</span><time>${escapeHtml(lagosTime(item.timestamp_ms))}</time><span class="runtime-status status-${statusClass}">${escapeHtml(statusCode)}</span></div><div class="runtime-log-route"><span class="runtime-method">${method}</span><code>${route}</code></div><p class="runtime-log-message">${message}</p><div class="runtime-log-meta"><span>${domain || service || source}</span><span>Request: ${requestId}</span></div><details><summary>Deployment and event details</summary><dl><dt>Deployment</dt><dd>${deployment}</dd><dt>Source</dt><dd>${source}</dd><dt>Service</dt><dd>${service}</dd><dt>Region</dt><dd>${region}</dd><dt>Runtime</dt><dd>${runtime}</dd><dt>Stream</dt><dd>${stream}</dd><dt>Branch</dt><dd>${branch}</dd><dt>Trace ID</dt><dd>${traceId}</dd><dt>Request ID</dt><dd>${requestId}</dd><dt>Raw timestamp</dt><dd>${escapeHtml(item.timestamp_ms || "—")}</dd><dt>Message truncated</dt><dd>${item.message_truncated ? "Yes" : "No"}</dd></dl></details></article>`;
     }).join("");
   };
 
-  async function loadLogs(quiet = false) {
+  async function loadLogs(quiet = false, bypassCache = true) {
     if (isLoading) return;
     isLoading = true;
-    const refresh = $("#logsRefresh");
-    if (refresh) { refresh.disabled = true; refresh.textContent = "Loading…"; }
-    if (statusMessage) statusMessage.textContent = "Requesting logs from the latest production deployment…";
+    if (refreshButton) {
+      refreshButton.disabled = true;
+      refreshButton.textContent = "Refreshing…";
+      refreshButton.setAttribute("aria-busy", "true");
+    }
+    if (statusMessage) statusMessage.textContent = "Requesting the last hour of production runtime logs from Vercel…";
     try {
-      const data = await api("admin/logs?limit=100");
+      const refreshQuery = bypassCache ? "&refresh=1" : "";
+      const data = await api(`admin/logs?limit=100${refreshQuery}`);
       allLogs = Array.isArray(data.logs) ? data.logs : [];
       $("#logsCount").textContent = Number(data.count ?? allLogs.length).toLocaleString();
       $("#logsErrorCount").textContent = allLogs.filter(item => item.level === "error" || Number(item.status_code) >= 500).length.toLocaleString();
       $("#logsDeploymentCount").textContent = Number(data.deployments_scanned || 0).toLocaleString();
+      const fetchedAt = new Date(data.fetched_at || Date.now());
       $("#logsLastRefresh").textContent = new Intl.DateTimeFormat("en-GB", {
         timeZone: "Africa/Lagos", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
-      }).format(new Date());
-      if (statusMessage) statusMessage.textContent = `${allLogs.length} runtime entries loaded from the latest production deployment. Maximum 100 entries.`;
+      }).format(fetchedAt);
+      const moreText = data.has_more ? " More matching entries are available beyond the 100-entry page." : "";
+      if (statusMessage) statusMessage.textContent = `${allLogs.length} runtime entries loaded from the newest production deployment for the last ${Number(data.history_hours || 1)} hour. Auto-refresh runs every 60 seconds.${moreText}`;
       renderLogs();
       showWorkspace();
     } catch (error) {
       if (error.status === 401 || /Runtime Logs authentication required/i.test(error.message)) {
         showLogin("Your Runtime Logs session has expired. Sign in again.");
       } else {
-        // Upstream Vercel failures do not invalidate the independent Logs session.
+        // An upstream Vercel failure does not invalidate the independent Logs session.
+        // Keep the last successful records visible while the next retry is pending.
         showWorkspace();
-        if (statusMessage) statusMessage.textContent = error.message;
-        if (logsList) logsList.innerHTML = '<div class="logs-empty-state"><strong>Logs are temporarily unavailable</strong><p>Your session is still active. Check the Vercel integration and refresh.</p></div>';
+        if (statusMessage) statusMessage.textContent = allLogs.length
+          ? `Refresh failed: ${error.message} Previously loaded entries remain visible.`
+          : error.message;
+        if (!allLogs.length && logsList) logsList.innerHTML = '<div class="logs-empty-state"><strong>Logs are temporarily unavailable</strong><p>Your session is still active. Check the Vercel integration and refresh.</p></div>';
       }
       if (!quiet) console.error("[DEVZIKKY PAY] Server runtime logs failed", { message: error.message });
     } finally {
       isLoading = false;
-      if (refresh) { refresh.disabled = false; refresh.textContent = "↻ Refresh logs"; }
+      if (refreshButton) {
+        refreshButton.disabled = false;
+        refreshButton.textContent = "↻ Refresh logs";
+        refreshButton.setAttribute("aria-busy", "false");
+      }
     }
   }
 
@@ -1035,7 +1072,7 @@ async function logsPage() {
       if (loginMessage) loginMessage.textContent = "";
       showWorkspace();
       // Do not make successful authentication wait for the Vercel Logs API.
-      void loadLogs(false);
+      void loadLogs(false, true);
     } catch (error) {
       if (loginMessage) loginMessage.textContent = error.message;
     } finally {
@@ -1043,7 +1080,7 @@ async function logsPage() {
     }
   });
 
-  $("#logsRefresh")?.addEventListener("click", () => void loadLogs(false));
+  refreshButton?.addEventListener("click", () => void loadLogs(false, true));
   $("#logsLogout")?.addEventListener("click", async () => {
     try {
       await api("logs/logout", { method: "POST", body: "{}" });
@@ -1057,12 +1094,14 @@ async function logsPage() {
   [levelFilter, statusFilter].forEach(input => input?.addEventListener("change", renderLogs));
   searchInput?.addEventListener("input", renderLogs);
 
+  window.addEventListener("pagehide", stopAutoRefresh, { once: true });
+
   // Check only the Logs cookie. This endpoint never contacts Vercel.
   try {
     const session = await api("logs/session");
     if (session.authenticated) {
       showWorkspace();
-      void loadLogs(true);
+      void loadLogs(true, true);
     } else {
       showLogin("");
     }
