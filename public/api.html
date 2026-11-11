@@ -1,22 +1,128 @@
-<!doctype html><html lang="en"><head><script src="/theme-init.js"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#070910"><meta name="description" content="API documentation for DEVZIKKY PAY liveness, readiness, exchange rates, statistics and payment verification."><meta name="color-scheme" content="light dark"><meta property="og:title" content="API Documentation — DEVZIKKY PAY"><meta property="og:description" content="API documentation for DEVZIKKY PAY liveness, readiness, exchange rates, statistics and payment verification."><title>API Documentation — DEVZIKKY PAY</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/loader.css"><link rel="stylesheet" href="/effects.css"><link rel="stylesheet" href="/footer.css"><script src="/loader.js" defer></script><script src="/error-monitor.js" defer></script><link rel="stylesheet" href="/theme.css"></head><body><div class="dz-loader" id="dzLoader" role="status" aria-live="polite"><div class="loader-core"><div class="loader-emblem"><div class="loader-mark">DZ</div></div><p class="loader-title">DEVZIKKY <span>PAY</span></p><p class="loader-subtitle" data-loader-subtitle>Preparing your DEVZIKKY PAY experience</p><div class="loader-progress"><i data-loader-fill></i></div><div class="loader-meta"><span data-loader-status>INITIALIZING</span><strong data-loader-percent>0%</strong></div><p class="loader-message">BUILD · LEARN · IMPROVE · SHIP</p><button class="loader-skip" data-loader-skip type="button">SKIP INTRO ↗</button></div></div><header class="site-header"><div class="header-inner"><a class="brand" href="/" aria-label="DEVZIKKY PAY home"><span class="brand-mark">DZ</span><span class="brand-copy"><strong>DEVZIKKY PAY</strong><small>IDEAS · TOOLS · PROJECT SUPPORT</small></span></a><nav class="nav-links" data-nav aria-label="Main navigation"><a href="/" >Home</a><a href="/about" >About</a><a href="/projects" >Projects</a><a href="/support" >Support</a><a href="/roadmap" >Roadmap</a><a href="/statistics" >Statistics</a><a href="/faq" >FAQ</a><a href="/privacy" >Privacy</a><a href="/control-room">Control Room</a><a href="/log">Runtime Logs</a><a href="/api" aria-current="page">API docs</a><a class="nav-primary" href="/donate">Donate &amp; Support Us ↗</a></nav><button class="menu-toggle" data-menu-toggle type="button" aria-expanded="false" aria-label="Open navigation">☰</button></div></header>
-<main><section class="page-hero container"><span class="crumb">DEVZIKKY PAY / PUBLIC DEVELOPER REFERENCE</span><h1>Public <span class="gradient">API.</span></h1><p>A reference for public-safe, read-only GET endpoints. No donor names, email addresses, private notes, Admin records or deployment logs are exposed by this catalogue.</p></section><section class="section"><div class="container api-doc-grid"><article class="card reveal"><span class="kicker">SERVICE STATUS</span><h2>GET /api/ping</h2><p>Lightweight liveness check. Does not require a database connection.</p><pre class="code-panel">{
+<!doctype html><html lang="en"><head><script src="/theme-init.js"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#070910"><meta name="description" content="API documentation for DEVZIKKY PAY liveness, readiness, exchange rates, statistics and payment verification."><meta name="color-scheme" content="light dark"><meta property="og:title" content="API Documentation — DEVZIKKY PAY"><meta property="og:description" content="API documentation for DEVZIKKY PAY liveness, readiness, exchange rates, statistics and payment verification."><title>API Documentation — DEVZIKKY PAY</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/loader.css"><link rel="stylesheet" href="/effects.css"><link rel="stylesheet" href="/footer.css"><script src="/loader.js" defer></script><script src="/error-monitor.js" defer></script><link rel="stylesheet" href="/theme.css">
+<style id="api-route-copy-styles">
+  .api-endpoint-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 0 0 12px;
+  }
+  .api-endpoint-heading h2 { margin: 0; }
+  .api-route-copy-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 10px 0;
+  }
+  .api-route-copy-row .code-panel { flex: 1 1 280px; min-width: 0; margin: 0; }
+  .api-copy-route {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding: 8px 12px;
+    border: 1px solid rgba(87, 190, 235, .35);
+    border-radius: 11px;
+    color: #dff7ff;
+    background: linear-gradient(135deg, rgba(27, 112, 166, .30), rgba(88, 72, 170, .28));
+    font: 700 .75rem/1.2 Inter, sans-serif;
+    cursor: pointer;
+    transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
+  }
+  .api-copy-route:hover {
+    transform: translateY(-1px);
+    border-color: rgba(91, 210, 235, .72);
+    background: linear-gradient(135deg, rgba(27, 139, 183, .44), rgba(103, 83, 190, .42));
+    box-shadow: 0 7px 20px rgba(0, 0, 0, .14);
+  }
+  .api-copy-route:focus-visible {
+    outline: 3px solid rgba(65, 190, 226, .42);
+    outline-offset: 3px;
+  }
+  .api-copy-route.is-copied {
+    color: #eafff6;
+    background: linear-gradient(135deg, #087f65, #159a82);
+    border-color: rgba(78, 220, 176, .55);
+  }
+  .api-copy-route.is-failed {
+    color: #fff0f2;
+    background: #9f3450;
+    border-color: rgba(255, 140, 165, .55);
+  }
+  .api-route-alias {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .api-route-alias code { overflow-wrap: anywhere; }
+  #apiCopyFeedback {
+    position: fixed;
+    z-index: 1500;
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(18px, env(safe-area-inset-bottom));
+    max-width: min(360px, calc(100vw - 32px));
+    padding: 11px 15px;
+    border: 1px solid rgba(65, 190, 170, .38);
+    border-radius: 12px;
+    color: #eafff7;
+    background: rgba(8, 92, 75, .96);
+    box-shadow: 0 12px 34px rgba(0,0,0,.22);
+    font: 650 .82rem/1.4 Inter, sans-serif;
+    opacity: 0;
+    transform: translateY(8px);
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+  }
+  #apiCopyFeedback.is-visible { opacity: 1; transform: translateY(0); }
+  html[data-theme="light"] .api-copy-route {
+    color: #123b57;
+    background: linear-gradient(135deg, #e8f5ff, #edf0ff);
+    border-color: rgba(35, 105, 160, .25);
+  }
+  html[data-theme="light"] .api-copy-route:hover {
+    color: #082e49;
+    background: linear-gradient(135deg, #d9efff, #e4e8ff);
+    border-color: rgba(22, 111, 168, .48);
+  }
+  html[data-theme="light"] .api-copy-route.is-copied { color: #fff; background: linear-gradient(135deg, #087f65, #159a82); }
+  html[data-theme="light"] .api-copy-route.is-failed { color: #fff; background: #9f3450; }
+  @media (max-width: 520px) {
+    .api-endpoint-heading { align-items: flex-start; }
+    .api-copy-route { min-height: 40px; }
+    .api-route-copy-row { align-items: stretch; }
+    .api-route-copy-row .api-copy-route { width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .api-copy-route, #apiCopyFeedback { transition: none; }
+    .api-copy-route:hover { transform: none; }
+  }
+</style>
+</head><body><div class="dz-loader" id="dzLoader" role="status" aria-live="polite"><div class="loader-core"><div class="loader-emblem"><div class="loader-mark">DZ</div></div><p class="loader-title">DEVZIKKY <span>PAY</span></p><p class="loader-subtitle" data-loader-subtitle>Preparing your DEVZIKKY PAY experience</p><div class="loader-progress"><i data-loader-fill></i></div><div class="loader-meta"><span data-loader-status>INITIALIZING</span><strong data-loader-percent>0%</strong></div><p class="loader-message">BUILD · LEARN · IMPROVE · SHIP</p><button class="loader-skip" data-loader-skip type="button">SKIP INTRO ↗</button></div></div><header class="site-header"><div class="header-inner"><a class="brand" href="/" aria-label="DEVZIKKY PAY home"><span class="brand-mark">DZ</span><span class="brand-copy"><strong>DEVZIKKY PAY</strong><small>IDEAS · TOOLS · PROJECT SUPPORT</small></span></a><nav class="nav-links" data-nav aria-label="Main navigation"><a href="/" >Home</a><a href="/about" >About</a><a href="/projects" >Projects</a><a href="/support" >Support</a><a href="/roadmap" >Roadmap</a><a href="/statistics" >Statistics</a><a href="/faq" >FAQ</a><a href="/privacy" >Privacy</a><a href="/control-room">Control Room</a><a href="/log">Runtime Logs</a><a href="/api" aria-current="page">API docs</a><a class="nav-primary" href="/donate">Donate &amp; Support Us ↗</a></nav><button class="menu-toggle" data-menu-toggle type="button" aria-expanded="false" aria-label="Open navigation">☰</button></div></header>
+<main><section class="page-hero container"><span class="crumb">DEVZIKKY PAY / PUBLIC DEVELOPER REFERENCE</span><h1>Public <span class="gradient">API.</span></h1><p>A reference for public-safe, read-only GET endpoints. No donor names, email addresses, private notes, Admin records or deployment logs are exposed by this catalogue.</p></section><section class="section"><div class="container api-doc-grid"><article class="card reveal"><span class="kicker">SERVICE STATUS</span><div class="api-endpoint-heading"><h2>GET /api/ping</h2><button class="api-copy-route" type="button" data-copy-route="/api/ping" aria-label="Copy /api/ping route">⧉ Copy route</button></div><p>Lightweight liveness check. Does not require a database connection.</p><pre class="code-panel">{
   "ok": true,
   "status": "alive",
   "service": "DEVZIKKY PAY"
-}</pre></article><article class="card reveal"><span class="kicker">READINESS</span><h2>GET /api/health</h2><p>Checks database readiness, required schema and configuration presence. Secret values are never returned. Detailed database errors remain in server-side logs.</p></article><article class="card reveal"><span class="kicker">PAYMENT LIMITS</span><h2>GET /api/payment-limits</h2><p>Returns the current configured NGN minimum and maximum transaction amounts, whole-number input policy and checkout toast duration.</p><pre class="code-panel">{
+}</pre></article><article class="card reveal"><span class="kicker">READINESS</span><div class="api-endpoint-heading"><h2>GET /api/health</h2><button class="api-copy-route" type="button" data-copy-route="/api/health" aria-label="Copy /api/health route">⧉ Copy route</button></div><p>Checks database readiness, required schema and configuration presence. Secret values are never returned. Detailed database errors remain in server-side logs.</p></article><article class="card reveal"><span class="kicker">PAYMENT LIMITS</span><div class="api-endpoint-heading"><h2>GET /api/payment-limits</h2><button class="api-copy-route" type="button" data-copy-route="/api/payment-limits" aria-label="Copy /api/payment-limits route">⧉ Copy route</button></div><p>Returns the current configured NGN minimum and maximum transaction amounts, whole-number input policy and checkout toast duration.</p><pre class="code-panel">{
   "currency": "NGN",
   "minimum_amount_ngn": 100,
   "maximum_amount_ngn": 5000000,
   "whole_numbers_only": true,
   "toast_duration_ms": 5000
-}</pre></article><article class="card reveal"><span class="kicker">EXCHANGE RATES</span><h2>GET /api/rates</h2><p>Returns supported currency units per one Nigerian naira (base=NGN). NGN is represented by <code>base</code> and is not duplicated inside <code>rates</code>.</p><p class="muted small"><code>GET /api/rate</code> is a compatibility alias for this endpoint.</p><pre class="code-panel">{
+}</pre></article><article class="card reveal"><span class="kicker">EXCHANGE RATES</span><div class="api-endpoint-heading"><h2>GET /api/rates</h2><button class="api-copy-route" type="button" data-copy-route="/api/rates" aria-label="Copy /api/rates route">⧉ Copy route</button></div><p>Returns supported currency units per one Nigerian naira (base=NGN). NGN is represented by <code>base</code> and is not duplicated inside <code>rates</code>.</p><div class="api-route-alias muted small"><span><code>GET /api/rate</code> is a compatibility alias for this endpoint.</span><button class="api-copy-route" type="button" data-copy-route="/api/rate" aria-label="Copy /api/rate compatibility route">⧉ Copy alias</button></div><pre class="code-panel">{
   "base": "NGN",
   "source": "live",
   "rates": {
     "USD": 0.000743,
     "EUR": 0.000663
   }
-}</pre><p class="muted small">Fallback responses may include a snapshot date. These are reference rates, not guaranteed payment quotes.</p></article><article class="card reveal"><span class="kicker">PUBLIC STATISTICS</span><h2>GET /api/stats</h2><p>Aggregated payment totals and time series. Supported query parameters:</p><ul class="endpoint-list"><li><code>from</code> and <code>to</code> — DD/MM/YYYY</li><li><code>grain</code> — day, week, month or year</li><li><code>download=json</code> — return a pretty-printed JSON attachment</li></ul><pre class="code-panel">GET /api/stats?from=01/11/2026&amp;to=11/11/2026&amp;grain=day</pre></article><article class="card reveal"><span class="kicker">PUBLIC ACTIVITY EXPORT</span><h2>GET /api/stats/export</h2><p>Returns successful payment references, amounts, types, Lagos timestamps and donor notes only when the donor explicitly opted in. Donor names, email addresses and private notes are excluded.</p><pre class="code-panel">GET /api/stats/export?from=01/11/2026&amp;to=11/11/2026</pre></article><article class="card reveal"><span class="kicker">PAYMENT AMOUNT RULE</span><h2>Integer amounts only</h2><p>Payment initialization accepts whole-number amounts only. API clients may send an ungrouped integer such as <code>5000</code> or a correctly grouped value such as <code>5,000</code>. Decimal inputs are rejected; the backend independently validates the amount and converted NGN value before Paystack is called. Validation errors use <code>AMOUNT_WHOLE_NUMBER_REQUIRED</code>, <code>AMOUNT_BELOW_MINIMUM</code>, <code>AMOUNT_ABOVE_MAXIMUM</code> or <code>INVALID_AMOUNT_FORMAT</code> as applicable. Minimum and maximum checks apply to the final NGN amount in kobo after currency conversion and rounding.</p><pre class="code-panel">{
+}</pre><p class="muted small">Fallback responses may include a snapshot date. These are reference rates, not guaranteed payment quotes.</p></article><article class="card reveal"><span class="kicker">PUBLIC STATISTICS</span><div class="api-endpoint-heading"><h2>GET /api/stats</h2><button class="api-copy-route" type="button" data-copy-route="/api/stats" aria-label="Copy /api/stats route">⧉ Copy route</button></div><p>Aggregated payment totals and time series. Supported query parameters:</p><ul class="endpoint-list"><li><code>from</code> and <code>to</code> — DD/MM/YYYY</li><li><code>grain</code> — day, week, month or year</li><li><code>download=json</code> — return a pretty-printed JSON attachment</li></ul><div class="api-route-copy-row"><pre class="code-panel">GET /api/stats?from=01/11/2026&amp;to=11/11/2026&amp;grain=day</pre><button class="api-copy-route" type="button" data-copy-route="/api/stats?from=01/11/2026&amp;to=11/11/2026&amp;grain=day" aria-label="Copy Statistics example route">⧉ Copy example</button></div></article><article class="card reveal"><span class="kicker">PUBLIC ACTIVITY EXPORT</span><div class="api-endpoint-heading"><h2>GET /api/stats/export</h2><button class="api-copy-route" type="button" data-copy-route="/api/stats/export" aria-label="Copy /api/stats/export route">⧉ Copy route</button></div><p>Returns successful payment references, amounts, types, Lagos timestamps and donor notes only when the donor explicitly opted in. Donor names, email addresses and private notes are excluded.</p><div class="api-route-copy-row"><pre class="code-panel">GET /api/stats/export?from=01/11/2026&amp;to=11/11/2026</pre><button class="api-copy-route" type="button" data-copy-route="/api/stats/export?from=01/11/2026&amp;to=11/11/2026" aria-label="Copy public activity export example route">⧉ Copy example</button></div></article><article class="card reveal"><span class="kicker">PAYMENT AMOUNT RULE</span><h2>Integer amounts only</h2><p>Payment initialization accepts whole-number amounts only. API clients may send an ungrouped integer such as <code>5000</code> or a correctly grouped value such as <code>5,000</code>. Decimal inputs are rejected; the backend independently validates the amount and converted NGN value before Paystack is called. Validation errors use <code>AMOUNT_WHOLE_NUMBER_REQUIRED</code>, <code>AMOUNT_BELOW_MINIMUM</code>, <code>AMOUNT_ABOVE_MAXIMUM</code> or <code>INVALID_AMOUNT_FORMAT</code> as applicable. Minimum and maximum checks apply to the final NGN amount in kobo after currency conversion and rounding.</p><pre class="code-panel">{
   "success": false,
   "error": {
     "code": "AMOUNT_WHOLE_NUMBER_REQUIRED",
@@ -26,4 +132,78 @@
     "maximum_amount_ngn": 5000000
   }
 }</pre></article><article class="card reveal"><span class="kicker">AUTHENTICATION MODEL</span><h2>Keep credentials server-side</h2><p>These public GET endpoints return public-safe data and do not require a secret key. <code>API_KEY</code> is reserved for trusted server-to-server automation. <code>ADMIN_KEY</code> is used only to sign in to the website Control Room; the browser receives a short-lived HttpOnly session cookie afterwards. Never embed either key in HTML, JavaScript or a public repository.</p></article><article class="card reveal"><span class="kicker">NOT IN THE PUBLIC CATALOGUE</span><h2>Private and state-changing routes</h2><p>Admin transaction, export and Vercel log endpoints require an authenticated Admin session and are documented only inside the authenticated Control Room and Runtime Logs page. Payment verification is an operational callback that may update transaction state, so it is intentionally not described as a read-only public API.</p><a class="button ghost" href="/control-room">Open Control Room ↗</a></article></div></section></main>
+
+<div id="apiCopyFeedback" role="status" aria-live="polite" aria-atomic="true"></div>
+<script>
+(() => {
+  const feedback = document.getElementById("apiCopyFeedback");
+  let feedbackTimer = null;
+
+  function showFeedback(message, success) {
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.style.borderColor = success
+      ? "rgba(65, 190, 170, .38)"
+      : "rgba(220, 90, 115, .5)";
+    feedback.style.background = success ? "rgba(8, 92, 75, .96)" : "rgba(135, 38, 59, .97)";
+    feedback.classList.add("is-visible");
+    if (feedbackTimer) window.clearTimeout(feedbackTimer);
+    feedbackTimer = window.setTimeout(() => feedback.classList.remove("is-visible"), 2200);
+  }
+
+  async function copyText(value) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    // Fallback for browsers/webviews where Clipboard API is unavailable.
+    const field = document.createElement("textarea");
+    field.value = value;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.left = "-9999px";
+    field.style.top = "0";
+    field.style.opacity = "0";
+    document.body.appendChild(field);
+    field.focus();
+    field.select();
+    field.setSelectionRange(0, field.value.length);
+    let copied = false;
+    try { copied = document.execCommand("copy"); }
+    finally { field.remove(); }
+    if (!copied) throw new Error("Clipboard access was denied by this browser.");
+  }
+
+  document.addEventListener("click", async event => {
+    const button = event.target.closest("[data-copy-route]");
+    if (!button) return;
+    const route = button.getAttribute("data-copy-route");
+    if (!route) return;
+
+    const originalLabel = button.dataset.originalLabel || button.textContent.trim();
+    button.dataset.originalLabel = originalLabel;
+    button.disabled = true;
+    try {
+      await copyText(route);
+      button.classList.remove("is-failed");
+      button.classList.add("is-copied");
+      button.textContent = "✓ Copied";
+      showFeedback(`Copied ${route}`, true);
+    } catch (error) {
+      button.classList.remove("is-copied");
+      button.classList.add("is-failed");
+      button.textContent = "Copy failed";
+      showFeedback("Could not copy this route. Check your browser clipboard permission.", false);
+      console.warn("[DEVZIKKY PAY API docs] Clipboard copy failed:", error?.message || error);
+    } finally {
+      window.setTimeout(() => {
+        button.disabled = false;
+        button.classList.remove("is-copied", "is-failed");
+        button.textContent = originalLabel;
+      }, 1600);
+    }
+  });
+})();
+</script>
 <div id="siteFooter"></div><button class="back-top" data-back-top type="button" aria-label="Back to top">↑</button><script src="/footer.js" defer></script><script src="/site.js" defer></script><script src="/app.js" defer></script></body></html>
