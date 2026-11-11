@@ -9,6 +9,8 @@ export const APP_CONFIG = {
   // Checkout guardrails (authoritative NGN amount after currency conversion).
   MIN_PAYMENT_AMOUNT_NGN: 100,
   MAX_PAYMENT_AMOUNT_NGN: 5000000,
+  // Checkout amount-validation toast duration.
+  TOAST_DURATION_MS: 5000,
 
   // Lazy reconciliation: no Cron job. Runs opportunistically on API traffic.
   PENDING_PAYMENT_MAX_AGE_MINUTES: 60,

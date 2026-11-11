@@ -11,6 +11,9 @@
     },
     "api/pay/*.js": {
       "maxDuration": 60
+    },
+    "api/stats/*.js": {
+      "maxDuration": 60
     }
   },
   "headers": [

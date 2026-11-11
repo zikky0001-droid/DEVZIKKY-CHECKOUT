@@ -79,6 +79,73 @@ async function readBody(req) {
   }
 }
 
+function parseWholeAmount(value) {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return { ok: false, code: "INVALID_AMOUNT" };
+    if (!Number.isSafeInteger(value)) {
+      return { ok: false, code: Number.isInteger(value) ? "AMOUNT_OUT_OF_SAFE_RANGE" : "AMOUNT_WHOLE_NUMBER_REQUIRED" };
+    }
+    return value > 0 ? { ok: true, value } : { ok: false, code: "INVALID_AMOUNT" };
+  }
+
+  if (typeof value !== "string") return { ok: false, code: "INVALID_AMOUNT" };
+  const input = value.trim();
+  if (!input) return { ok: false, code: "INVALID_AMOUNT" };
+
+  if (/^\d+$/.test(input)) {
+    const amount = Number(input);
+    return Number.isSafeInteger(amount) && amount > 0
+      ? { ok: true, value: amount }
+      : { ok: false, code: "AMOUNT_OUT_OF_SAFE_RANGE" };
+  }
+
+  if (/^\d{1,3}(?:,\d{3})+$/.test(input)) {
+    const amount = Number(input.replace(/,/g, ""));
+    return Number.isSafeInteger(amount) && amount > 0
+      ? { ok: true, value: amount }
+      : { ok: false, code: "AMOUNT_OUT_OF_SAFE_RANGE" };
+  }
+
+  if (/^[+-]?[\d,]+\.\d+$/.test(input)) {
+    return { ok: false, code: "AMOUNT_WHOLE_NUMBER_REQUIRED" };
+  }
+  return { ok: false, code: "INVALID_AMOUNT_FORMAT" };
+}
+
+function paymentAmountError(code, currency = "NGN") {
+  const messages = {
+    INVALID_AMOUNT: "Enter a valid amount greater than zero.",
+    INVALID_AMOUNT_FORMAT: "Use digits only. Thousands separators must be correctly grouped, for example 5,000.",
+    AMOUNT_WHOLE_NUMBER_REQUIRED: "Only whole-number amounts are accepted. Decimal amounts are not allowed.",
+    AMOUNT_OUT_OF_SAFE_RANGE: "The amount is too large or outside the supported numeric range.",
+    AMOUNT_BELOW_MINIMUM: `The minimum payment is NGN ${APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")}.`,
+    AMOUNT_ABOVE_MAXIMUM: `The maximum payment is NGN ${APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")}.`,
+    AMOUNT_OUT_OF_RANGE: `The converted amount must be between NGN ${APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")} and NGN ${APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")}.`
+  };
+  return {
+    success: false,
+    error: {
+      code,
+      message: messages[code] || "The payment amount is invalid.",
+      currency,
+      whole_numbers_only: true,
+      minimum_amount_ngn: APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN,
+      maximum_amount_ngn: APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN
+    }
+  };
+}
+
+function classifyNgnMinorAmount(amountNgn) {
+  if (!Number.isFinite(amountNgn)) return "INVALID_AMOUNT";
+  const amountMinor = Math.round(amountNgn * 100);
+  const minMinor = Math.round(APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN * 100);
+  const maxMinor = Math.round(APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN * 100);
+  if (!Number.isSafeInteger(amountMinor)) return "AMOUNT_OUT_OF_SAFE_RANGE";
+  if (amountMinor < minMinor) return "AMOUNT_BELOW_MINIMUM";
+  if (amountMinor > maxMinor) return "AMOUNT_ABOVE_MAXIMUM";
+  return null;
+}
+
 const validEmail = value =>
   typeof value === "string" &&
   /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim()) &&
@@ -149,13 +216,6 @@ function currentLagosIsoDate() {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
-function csvCellSafe(value) {
-  let text = String(value ?? "");
-  // Neutralize spreadsheet formulas in donor-controlled fields before CSV quoting.
-  if (/^[\u0000-\u0020]*[=+\-@]/.test(text)) text = `'${text}`;
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
 function formatTimestampLagos(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -167,16 +227,6 @@ function formatTimestampLagos(value) {
   const values = Object.fromEntries(parts.filter(part => part.type !== "literal")
     .map(part => [part.type, part.value]));
   return `${values.day}/${values.month}/${values.year} ${values.hour}:${values.minute}:${values.second}`;
-}
-
-function formatTimestampExport(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("en-NG", {
-    timeZone: "Africa/Lagos", day: "2-digit", month: "short", year: "numeric",
-    hour: "numeric", minute: "2-digit", hourCycle: "h12"
-  }).format(date) + " WAT";
 }
 
 function exportLabel(value, kind) {
@@ -599,7 +649,7 @@ function normalizeVercelRuntimeLog(entry, deployment) {
   };
 }
 
-async function fetchVercelApi(url, timeoutMs = 12000) {
+async function fetchVercelApi(url, timeoutMs = 18000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -653,7 +703,7 @@ async function getVercelRuntimeLogs(requestedLimit, requestId, log) {
     const deploymentUrl = new URL("https://api.vercel.com/v7/deployments");
     deploymentUrl.searchParams.set("projectId", projectId);
     deploymentUrl.searchParams.set("target", "production");
-    deploymentUrl.searchParams.set("limit", "5");
+    deploymentUrl.searchParams.set("limit", "3");
     deploymentUrl.searchParams.set("teamId", teamId);
 
     const deploymentsText = await fetchVercelApi(deploymentUrl.toString());
@@ -661,7 +711,7 @@ async function getVercelRuntimeLogs(requestedLimit, requestId, log) {
     const deployments = (Array.isArray(deploymentPayload.deployments) ? deploymentPayload.deployments : [])
       .filter(item => item && (item.uid || item.id) && (!item.target || item.target === "production"))
       .sort((a, b) => Number(b.createdAt || b.created || 0) - Number(a.createdAt || a.created || 0))
-      .slice(0, 5)
+      .slice(0, 3)
       .map(item => ({
         uid: String(item.uid || item.id),
         url: String(item.url || ""),
@@ -686,7 +736,12 @@ async function getVercelRuntimeLogs(requestedLimit, requestId, log) {
           `https://api.vercel.com/v1/projects/${encodeURIComponent(projectId)}/deployments/${encodeURIComponent(deployment.uid)}/runtime-logs`
         );
         logsUrl.searchParams.set("teamId", teamId);
-        const text = await fetchVercelApi(logsUrl.toString());
+        logsUrl.searchParams.set("limit", "100");
+        const logsUntil = new Date();
+        const logsSince = new Date(logsUntil.getTime() - 24 * 60 * 60 * 1000);
+        logsUrl.searchParams.set("since", logsSince.toISOString());
+        logsUrl.searchParams.set("until", logsUntil.toISOString());
+        const text = await fetchVercelApi(logsUrl.toString(), 18000);
         return { deployment, rows: parseVercelRuntimeLogText(text), error: null };
       } catch (error) {
         log("warn", "admin.logs.deployment_fetch_failed", {
@@ -805,9 +860,12 @@ async function initializePayment(db, details, log) {
       !Number.isSafeInteger(minimumMinor) || !Number.isSafeInteger(maximumMinor) ||
       minimumMinor < 1 || maximumMinor < minimumMinor ||
       amountMinor < minimumMinor || amountMinor > maximumMinor) {
-    throw new Error(
-      `Payment amount must be between ₦${minimumNgn.toLocaleString("en-NG")} and ₦${maximumNgn.toLocaleString("en-NG")}`
+    const error = new Error(
+      `Payment amount must be between NGN ${minimumNgn.toLocaleString("en-NG")} and NGN ${maximumNgn.toLocaleString("en-NG")}.`
     );
+    error.statusCode = 400;
+    error.code = "AMOUNT_OUT_OF_RANGE";
+    throw error;
   }
 
   const reference = makeReference();
@@ -1157,7 +1215,9 @@ export default async function handler(req, res) {
       return sendJson(res, 200, {
         currency: "NGN",
         minimum_amount_ngn: APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN,
-        maximum_amount_ngn: APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN
+        maximum_amount_ngn: APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN,
+        whole_numbers_only: true,
+        toast_duration_ms: APP_CONFIG.TOAST_DURATION_MS
       }, requestId);
     }
 
@@ -1222,12 +1282,22 @@ export default async function handler(req, res) {
         return sendJson(res, 400, { error: "Unsupported currency" }, requestId);
       }
 
-      const amount = Number(body.amount);
-      if (!Number.isFinite(amount) || amount <= 0 || amount > 10000000) {
-        return sendJson(res, 400, { error: "Invalid amount" }, requestId);
+      const parsedAmount = parseWholeAmount(body.amount);
+      if (!parsedAmount.ok) {
+        log("warn", "checkout.validation.failed", {
+          field: "amount",
+          reason: parsedAmount.code,
+          currency: currencyCode
+        });
+        return sendJson(res, 400, paymentAmountError(parsedAmount.code, currencyCode), requestId);
       }
+      const amount = parsedAmount.value;
 
-      const rates = await getRates(db, log);
+      // NGN is the Paystack settlement currency; it does not depend on the
+      // external exchange-rate provider. Only foreign-currency payments fetch rates.
+      const rates = currencyCode === "NGN"
+        ? { ngn_per_unit: { NGN: 1 }, rateDate: null, source: "base" }
+        : await getRates(db, log);
       const ngnRate = Number(rates.ngn_per_unit[currencyCode]);
       if (!Number.isFinite(ngnRate) || ngnRate <= 0) {
         log("warn", "checkout.currency_unavailable", {
@@ -1242,12 +1312,14 @@ export default async function handler(req, res) {
       }
 
       const amountNgn = currencyCode === "NGN" ? amount : amount * ngnRate;
-      if (!Number.isFinite(amountNgn) ||
-          amountNgn < APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN ||
-          amountNgn > APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN) {
-        return sendJson(res, 400, {
-          error: `Converted amount must be between ₦${APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")} and ₦${APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")}.`
-        }, requestId);
+      const rangeError = classifyNgnMinorAmount(amountNgn);
+      if (rangeError) {
+        log("warn", "checkout.validation.failed", {
+          field: "converted_amount",
+          reason: rangeError,
+          currency: currencyCode
+        });
+        return sendJson(res, 400, paymentAmountError(rangeError, currencyCode), requestId);
       }
       const payment = await initializePayment(db, {
         amountNgn,
@@ -1286,13 +1358,22 @@ export default async function handler(req, res) {
 
     if (path === "automation/initialize" && req.method === "POST") {
       const body = await readBody(req);
-      const automationAmount = Number(body.amount);
-      if (!Number.isFinite(automationAmount) ||
-          automationAmount < APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN ||
-          automationAmount > APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN) {
-        return sendJson(res, 400, {
-          error: `Amount must be between ₦${APP_CONFIG.MIN_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")} and ₦${APP_CONFIG.MAX_PAYMENT_AMOUNT_NGN.toLocaleString("en-NG")}`
-        }, requestId);
+      const parsedAutomationAmount = parseWholeAmount(body.amount);
+      if (!parsedAutomationAmount.ok) {
+        log("warn", "automation.validation.failed", {
+          field: "amount",
+          reason: parsedAutomationAmount.code
+        });
+        return sendJson(res, 400, paymentAmountError(parsedAutomationAmount.code, "NGN"), requestId);
+      }
+      const automationAmount = parsedAutomationAmount.value;
+      const automationRangeError = classifyNgnMinorAmount(automationAmount);
+      if (automationRangeError) {
+        log("warn", "automation.validation.failed", {
+          field: "amount",
+          reason: automationRangeError
+        });
+        return sendJson(res, 400, paymentAmountError(automationRangeError, "NGN"), requestId);
       }
       const payment = await initializePayment(db, {
         amountNgn: automationAmount,
@@ -1312,6 +1393,11 @@ export default async function handler(req, res) {
         currency: "NGN",
         email: APP_CONFIG.API_EMAIL
       }, requestId);
+    }
+
+    if (path === "stats/export" && req.method !== "GET") {
+      res.setHeader("Allow", "GET");
+      return sendJson(res, 405, { error: "Method not allowed. Use GET." }, requestId);
     }
 
     if (path === "stats/export" && req.method === "GET") {
@@ -1781,7 +1867,9 @@ export default async function handler(req, res) {
       stack: status >= 500 ? error.stack : undefined
     });
     return sendJson(res, status, {
+      success: false,
       error: status >= 500 ? "Server error. Check Vercel function logs." : error.message,
+      ...(error.code ? { code: error.code } : {}),
       request_id: requestId
     }, requestId);
   } finally {

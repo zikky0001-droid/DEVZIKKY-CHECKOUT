@@ -99,10 +99,16 @@ async function api(path, options = {}) {
   }
 
   if (!response.ok) {
+    const errorPayload = data.error;
+    const errorMessage = typeof errorPayload === "string"
+      ? errorPayload
+      : errorPayload?.message || data.message || "Request failed";
     const suffix = requestId || data.request_id
       ? ` (request ID: ${requestId || data.request_id})`
       : "";
-    throw new Error(`${data.error || "Request failed"}${suffix}`);
+    const apiError = new Error(`${errorMessage}${suffix}`);
+    apiError.code = typeof errorPayload === "object" ? errorPayload?.code : data.code;
+    throw apiError;
   }
 
   return data;
@@ -120,26 +126,102 @@ async function checkoutPage() {
 
   const currencySelect = $("#currency");
   const estimate = $("#estimate");
+  const amountInput = form.elements.amount;
   const noteInput = form.elements.note;
   const noteCounter = $("#noteCounter");
+  let paymentLimits = {
+    minimum_amount_ngn: 100,
+    maximum_amount_ngn: 5000000,
+    toast_duration_ms: 5000
+  };
+
+  const toastDuration = () => {
+    const configured = Number(paymentLimits.toast_duration_ms);
+    return Number.isInteger(configured) && configured >= 1000 && configured <= 15000
+      ? configured : 5000;
+  };
+
+  let toastTimer = null;
+  let toastHost = null;
+  function showPaymentToast(message, kind = "error") {
+    if (!toastHost) {
+      toastHost = document.createElement("div");
+      toastHost.className = "dz-payment-toast-region";
+      toastHost.setAttribute("aria-label", "Payment notifications");
+      toastHost.setAttribute("aria-live", "polite");
+      toastHost.setAttribute("aria-relevant", "additions text");
+      document.body.appendChild(toastHost);
+    }
+    if (toastTimer) window.clearTimeout(toastTimer);
+    toastHost.replaceChildren();
+
+    const duration = toastDuration();
+    const toast = document.createElement("div");
+    toast.className = `dz-payment-toast dz-payment-toast-${kind}`;
+    toast.setAttribute("role", kind === "error" ? "alert" : "status");
+    toast.style.setProperty("--toast-duration", `${duration}ms`);
+
+    const progress = document.createElement("span");
+    progress.className = "dz-payment-toast-progress";
+    progress.setAttribute("aria-hidden", "true");
+
+    const icon = document.createElement("span");
+    icon.className = "dz-payment-toast-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = kind === "error" ? "!" : "✓";
+
+    const copy = document.createElement("span");
+    copy.className = "dz-payment-toast-copy";
+    const title = document.createElement("strong");
+    title.textContent = kind === "error" ? "Payment amount needs attention" : "Checkout update";
+    const body = document.createElement("span");
+    body.textContent = String(message);
+    copy.append(title, body);
+    toast.append(progress, icon, copy);
+    toastHost.appendChild(toast);
+
+    toastTimer = window.setTimeout(() => {
+      toast.classList.add("is-leaving");
+      window.setTimeout(() => {
+        if (toast.parentNode) toast.remove();
+      }, 180);
+    }, duration);
+  }
+
   const updateNoteCounter = () => {
     if (noteInput && noteCounter) noteCounter.textContent = `${noteInput.value.length} / 200 characters`;
   };
   noteInput?.addEventListener("input", updateNoteCounter);
   updateNoteCounter();
-  let rateData;
-  let paymentLimits = { minimum_amount_ngn: 100, maximum_amount_ngn: 5000000 };
 
+  let rateData;
   try {
     const limitsData = await api("payment-limits");
     const minimum = Number(limitsData.minimum_amount_ngn);
     const maximum = Number(limitsData.maximum_amount_ngn);
-    if (limitsData.currency !== "NGN" || !Number.isFinite(minimum) || !Number.isFinite(maximum) || minimum <= 0 || maximum < minimum) {
+    if (limitsData.currency !== "NGN" || !Number.isFinite(minimum) ||
+        !Number.isFinite(maximum) || minimum <= 0 || maximum < minimum) {
       throw new Error("Payment limit configuration returned invalid values.");
     }
-    paymentLimits = { minimum_amount_ngn: minimum, maximum_amount_ngn: maximum };
-    $("#amountLimits").textContent = `Minimum: ₦${minimum.toLocaleString("en-NG")} | Maximum: ₦${maximum.toLocaleString("en-NG")}`;
-    rateData = await loadRates();
+    paymentLimits = {
+      minimum_amount_ngn: minimum,
+      maximum_amount_ngn: maximum,
+      toast_duration_ms: Number(limitsData.toast_duration_ms) || 5000
+    };
+    $("#amountLimits").textContent =
+      `Minimum: ₦${minimum.toLocaleString("en-NG")} | Maximum: ₦${maximum.toLocaleString("en-NG")} · Whole numbers only`;
+    try {
+      rateData = await loadRates();
+    } catch (rateError) {
+      // NGN checkout does not need FX rates. Keep it available while
+      // temporarily disabling foreign currencies until rates recover.
+      rateData = { base: "NGN", source: "ngn-only-fallback", rates: {} };
+      window.__dzRates = rateData;
+      $("#message").textContent = "Foreign-currency rates are temporarily unavailable. NGN payments are still available.";
+      console.warn("[DEVZIKKY PAY] FX rates unavailable; keeping NGN checkout active", {
+        message: rateError.message
+      });
+    }
 
     const available = ["NGN", ...Object.keys(rateData.rates || {})]
       .filter((code, index, list) => list.indexOf(code) === index)
@@ -162,16 +244,66 @@ async function checkoutPage() {
     return;
   }
 
+  // Add thousands separators while preserving the cursor position.
+  // Invalid characters are rejected; decimals are never silently truncated.
+  let lastValidAmount = "";
+  const formatAmountInput = () => {
+    const original = amountInput.value;
+    const cursor = amountInput.selectionStart ?? original.length;
+    const digitsBeforeCursor = original.slice(0, cursor).replace(/\D/g, "").length;
+
+    if (/[^0-9,]/.test(original)) {
+      amountInput.value = lastValidAmount;
+      const end = amountInput.value.length;
+      try { amountInput.setSelectionRange(end, end); } catch {}
+      showPaymentToast("Only whole numbers are accepted. Decimal amounts are not allowed.");
+      updateEstimate();
+      return false;
+    }
+
+    const digits = original.replace(/,/g, "");
+    if (digits.length > 15) {
+      amountInput.value = lastValidAmount;
+      const end = amountInput.value.length;
+      try { amountInput.setSelectionRange(end, end); } catch {}
+      showPaymentToast("The entered amount is too long. Check the payment limits.");
+      updateEstimate();
+      return false;
+    }
+
+    const formatted = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    amountInput.value = formatted;
+    lastValidAmount = formatted;
+
+    let nextCursor = 0;
+    let digitsSeen = 0;
+    while (nextCursor < formatted.length && digitsSeen < digitsBeforeCursor) {
+      if (/\d/.test(formatted[nextCursor])) digitsSeen += 1;
+      nextCursor += 1;
+    }
+    try { amountInput.setSelectionRange(nextCursor, nextCursor); } catch {}
+    updateEstimate();
+    return true;
+  };
+
+  amountInput.addEventListener("beforeinput", event => {
+    if (event.inputType?.startsWith("insert") && event.data && /[^0-9,]/.test(event.data)) {
+      event.preventDefault();
+      showPaymentToast("Only whole numbers are accepted. Decimal amounts are not allowed.");
+    }
+  });
+
   const updateEstimate = () => {
     const code = currencySelect.value;
-    const amount = Number(form.elements.amount.value);
+    const digits = amountInput.value.replace(/,/g, "");
+    const amount = digits && /^\d+$/.test(digits) ? Number(digits) : NaN;
     const providerRate = code === "NGN" ? 1 : Number(rateData.rates?.[code]);
     const ngnRate = code === "NGN" ? 1 :
       (Number.isFinite(providerRate) && providerRate > 0 ? 1 / providerRate : NaN);
 
     $("#currencyHint").textContent = code;
 
-    if (amount > 0 && ngnRate > 0) {
+    if (Number.isSafeInteger(amount) && amount > 0 && Number.isFinite(ngnRate) && ngnRate > 0) {
       const estimateNgn = code === "NGN" ? amount : amount * ngnRate;
       const providerLine = code === "NGN"
         ? "NGN is the base currency"
@@ -182,33 +314,58 @@ async function checkoutPage() {
         `${providerLine} · ${rateData.source}${fallbackDate}`;
     } else {
       const fallbackDate = rateData.date ? ` · Snapshot date: ${formatIsoDateDmy(rateData.date)}` : "";
-      estimate.textContent = `Rate source: ${rateData.source}${fallbackDate}`;
+      estimate.textContent = `Enter a whole-number amount. Rate source: ${rateData.source}${fallbackDate}`;
     }
   };
 
+  amountInput.addEventListener("input", formatAmountInput);
   currencySelect.addEventListener("change", updateEstimate);
-  form.elements.amount.addEventListener("input", updateEstimate);
-  updateEstimate();
+  // Also normalize an autofilled or restored value on initial page load.
+  formatAmountInput();
 
   form.addEventListener("submit", async event => {
     event.preventDefault();
+
+    const digits = amountInput.value.replace(/,/g, "");
+    if (!/^\d+$/.test(digits)) {
+      showPaymentToast("Enter a whole-number amount using digits only.");
+      amountInput.focus();
+      return;
+    }
+    const enteredAmount = Number(digits);
+    if (!Number.isSafeInteger(enteredAmount) || enteredAmount <= 0) {
+      showPaymentToast("Enter a valid whole-number amount.");
+      amountInput.focus();
+      return;
+    }
+
+    const selectedCurrency = String(currencySelect.value || "NGN").toUpperCase();
+    const providerRate = selectedCurrency === "NGN" ? 1 : Number(rateData?.rates?.[selectedCurrency]);
+    const estimatedNgn = selectedCurrency === "NGN" ? enteredAmount :
+      (providerRate > 0 ? enteredAmount / providerRate : NaN);
+    const estimatedMinor = Math.round(estimatedNgn * 100);
+    const minimumMinor = Math.round(paymentLimits.minimum_amount_ngn * 100);
+    const maximumMinor = Math.round(paymentLimits.maximum_amount_ngn * 100);
+
+    if (!Number.isSafeInteger(estimatedMinor) || estimatedMinor < minimumMinor) {
+      showPaymentToast(`The minimum payment is ₦${paymentLimits.minimum_amount_ngn.toLocaleString("en-NG")} after currency conversion.`);
+      amountInput.focus();
+      return;
+    }
+    if (estimatedMinor > maximumMinor) {
+      showPaymentToast(`The maximum payment is ₦${paymentLimits.maximum_amount_ngn.toLocaleString("en-NG")} after currency conversion.`);
+      amountInput.focus();
+      return;
+    }
+
     const button = $("#payButton");
     button.disabled = true;
     $("#message").textContent = "Preparing secure checkout…";
 
     try {
       const values = Object.fromEntries(new FormData(form));
-      const enteredAmount = Number(values.amount);
-      const selectedCurrency = String(values.currency || "NGN").toUpperCase();
-      const currentRates = rateData?.rates || {};
-      const providerRate = selectedCurrency === "NGN" ? 1 : Number(currentRates[selectedCurrency]);
-      const estimatedNgn = selectedCurrency === "NGN" ? enteredAmount :
-        (providerRate > 0 ? enteredAmount / providerRate : NaN);
-      if (!Number.isFinite(estimatedNgn) ||
-          estimatedNgn < paymentLimits.minimum_amount_ngn ||
-          estimatedNgn > paymentLimits.maximum_amount_ngn) {
-        throw new Error(`Converted payment amount must be between ₦${paymentLimits.minimum_amount_ngn.toLocaleString("en-NG")} and ₦${paymentLimits.maximum_amount_ngn.toLocaleString("en-NG")}.`);
-      }
+      // Commas are presentation-only and are removed before backend submission.
+      values.amount = String(enteredAmount);
       const result = await api("pay/initialize", {
         method: "POST",
         body: JSON.stringify(values)
@@ -222,8 +379,10 @@ async function checkoutPage() {
       window.location.assign(result.authorization_url);
     } catch (error) {
       $("#message").textContent = error.message;
+      showPaymentToast(error.message);
       console.error("[DEVZIKKY PAY] Checkout initialization failed", {
-        message: error.message
+        message: error.message,
+        code: error.code || null
       });
       button.disabled = false;
     }
@@ -250,7 +409,6 @@ async function checkoutPage() {
     }
   }
 }
-
 
 async function thankYouPage() {
   const panel = document.querySelector('[data-thankyou-card]');

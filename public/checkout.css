@@ -17,3 +17,69 @@
 html[data-theme="light"] .note-sharing-choice{background:rgba(25,45,75,.035);border-color:rgba(36,54,83,.16)}
 
 .note-counter{justify-self:end;color:var(--muted,#9eabc4);font: .68rem/1.4 "IBM Plex Mono",monospace;letter-spacing:.02em}
+
+
+/* Checkout amount feedback: vertical progress rail with configurable lifetime. */
+.dz-payment-toast-region {
+  position: fixed;
+  z-index: 1200;
+  top: calc(var(--header, 76px) + 14px);
+  right: max(14px, env(safe-area-inset-right));
+  width: min(420px, calc(100vw - 28px));
+  display: grid;
+  gap: 10px;
+  pointer-events: none;
+}
+.dz-payment-toast {
+  position: relative;
+  display: grid;
+  grid-template-columns: 4px 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  min-height: 76px;
+  padding: 13px 15px 13px 0;
+  border: 1px solid rgba(255, 91, 125, .34);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(26, 31, 48, .98), rgba(12, 18, 32, .98));
+  color: #f4f7ff;
+  box-shadow: 0 18px 48px rgba(0,0,0,.28);
+  pointer-events: auto;
+  animation: dzToastEnter .22s ease-out both;
+  backdrop-filter: blur(16px);
+}
+.dz-payment-toast.is-leaving { animation: dzToastLeave .18s ease-in both; }
+.dz-payment-toast-progress {
+  align-self: stretch;
+  width: 4px;
+  background: #ef5b79;
+  transform-origin: top;
+  animation: dzToastProgress var(--toast-duration, 5000ms) linear forwards;
+}
+.dz-payment-toast-icon {
+  width: 30px; height: 30px; display: grid; place-items: center;
+  border-radius: 50%; font-weight: 800; color: #fff;
+  background: rgba(239,91,121,.19); border: 1px solid rgba(239,91,121,.35);
+}
+.dz-payment-toast-copy { display: grid; gap: 3px; min-width: 0; line-height: 1.45; }
+.dz-payment-toast-copy strong { font-size: .82rem; color: #fff; }
+.dz-payment-toast-copy span { color: #d0d9e8; font-size: .75rem; overflow-wrap: anywhere; }
+.dz-payment-toast-success { border-color: rgba(42,190,143,.35); }
+.dz-payment-toast-success .dz-payment-toast-progress { background: #27bd8d; }
+.dz-payment-toast-success .dz-payment-toast-icon { background: rgba(39,189,141,.16); border-color: rgba(39,189,141,.3); }
+@keyframes dzToastProgress { from { transform: scaleY(1); } to { transform: scaleY(0); } }
+@keyframes dzToastEnter { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes dzToastLeave { to { opacity: 0; transform: translateY(-5px); } }
+html[data-theme="light"] .dz-payment-toast {
+  color: #1b2940;
+  border-color: rgba(190,63,97,.26);
+  background: linear-gradient(135deg, rgba(255,255,255,.99), rgba(246,249,253,.99));
+  box-shadow: 0 18px 44px rgba(31,48,78,.18);
+}
+html[data-theme="light"] .dz-payment-toast-copy strong { color: #1b2940; }
+html[data-theme="light"] .dz-payment-toast-copy span { color: #4d5d74; }
+html[data-theme="light"] .dz-payment-toast-icon { color: #a12d53; }
+@media (prefers-reduced-motion: reduce) {
+  .dz-payment-toast, .dz-payment-toast.is-leaving { animation: none; }
+  .dz-payment-toast-progress { animation-duration: var(--toast-duration, 5000ms); }
+}
