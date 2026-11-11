@@ -536,7 +536,7 @@ async function statisticsPage() {
         successful_value_ngn: Number(row.successful_ngn || 0)
       }))
     };
-    const json = JSON.stringify(payload, null, 2) + "\\n";
+    const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");

@@ -1129,7 +1129,9 @@ export default async function handler(req, res) {
           } : null
         }))
       };
-      const json = JSON.stringify(payload, null, 2) + "\\n";
+      const json = JSON.stringify(payload, null, 2);
+      // Fail closed if a future change accidentally produces malformed JSON.
+      JSON.parse(json);
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="devzikky-pay-public-transactions-${from}-to-${to}.json"`);
@@ -1458,7 +1460,9 @@ export default async function handler(req, res) {
           }))
         };
 
-        const json = JSON.stringify(payload, null, 2) + "\\n";
+        const json = JSON.stringify(payload, null, 2);
+        // Validate the serialized document before returning a successful response.
+        JSON.parse(json);
         res.statusCode = 200;
         res.setHeader("Content-Type", "application/json; charset=utf-8");
         res.setHeader("Content-Disposition", `attachment; filename="devzikky-pay-${requestedStatus}-transactions.json"`);
