@@ -515,6 +515,242 @@ function hasAutomationKey(req) {
   return safeEqual(supplied, process.env.API_KEY || "");
 }
 
+
+// Vercel runtime-log responses may be JSON arrays or newline-delimited JSON.
+// Never send the Vercel access token or raw upstream error body to the browser.
+let vercelLogsCache = null;
+let vercelLogsCacheUntil = 0;
+
+function redactLogText(value, maxLength = 6000) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+\/-]+/gi, "$1[REDACTED]")
+    .replace(/\b(VERCEL_ACCESS_TOKEN|ADMIN_KEY|API_KEY|PAYSTACK_KEY|DATABASE_URL)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]")
+    .replace(/([\"']?(?:authorization|access[_-]?token|refresh[_-]?token|secret|password|admin[_-]?key|api[_-]?key|paystack[_-]?key|database[_-]?url)[\"']?\s*[:=]\s*[\"']?)[^\"'\s,;}]+/gi, "$1[REDACTED]")
+    .replace(/(https?:\/\/[^\s?]+)\?[^\s]+/gi, "$1?[REDACTED]")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[EMAIL]")
+    .slice(0, maxLength);
+}
+
+function safeRuntimePath(value) {
+  const raw = String(value ?? "");
+  // Query strings can contain payment references, email addresses, or tokens.
+  // Keep the pathname only; never expose query parameter values in the Logs UI.
+  return redactLogText(raw.split(/[?#]/, 1)[0], 500);
+}
+
+function parseVercelRuntimeLogText(text) {
+  const body = String(text || "").trim();
+  if (!body) return [];
+  try {
+    const parsed = JSON.parse(body);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed.logs)) return parsed.logs;
+    if (Array.isArray(parsed.data)) return parsed.data;
+    if (parsed && typeof parsed === "object" &&
+        (parsed.timestampInMs || parsed.requestPath || parsed.message || parsed.rowId)) return [parsed];
+  } catch { /* Runtime log streams may be NDJSON instead of one JSON document. */ }
+
+  const rows = [];
+  for (const line of body.split(/\r?\n/)) {
+    const value = line.trim();
+    if (!value) continue;
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) rows.push(...parsed);
+      else if (parsed && typeof parsed === "object") rows.push(parsed);
+    } catch { /* Ignore non-JSON stream framing lines. */ }
+  }
+  return rows;
+}
+
+function normalizeVercelRuntimeLog(entry, deployment) {
+  const rawTimestamp = Number(entry?.timestampInMs ?? entry?.timestamp ?? entry?.createdAt ?? entry?.created ?? 0);
+  const timestampMs = Number.isFinite(rawTimestamp)
+    ? (rawTimestamp > 0 && rawTimestamp < 100000000000 ? rawTimestamp * 1000 : rawTimestamp)
+    : 0;
+  const status = Number(entry?.responseStatusCode ?? entry?.statusCode ?? entry?.payload?.statusCode ?? 0) || null;
+  let level = String(entry?.level || "info").toLowerCase();
+  if (level === "fatal") level = "error";
+  if (level === "warn") level = "warning";
+  if (!(["debug", "info", "warning", "warn", "error"].includes(level))) {
+    level = status >= 500 ? "error" : status >= 400 ? "warning" : "info";
+  }
+  if (status >= 500 && level === "info") level = "error";
+  else if (status >= 400 && level === "info") level = "warning";
+  const requestPath = safeRuntimePath(entry?.requestPath || entry?.payload?.proxy?.path || "");
+  const method = redactLogText(entry?.requestMethod || entry?.payload?.proxy?.method || "", 16);
+  const requestId = redactLogText(entry?.requestId || entry?.payload?.requestId || "", 160);
+  const message = redactLogText(entry?.message || entry?.payload?.text || entry?.text || "Runtime event", 6000);
+  return {
+    timestamp_ms: timestampMs || null,
+    level,
+    message,
+    domain: redactLogText(entry?.domain || entry?.host || "", 200),
+    method,
+    path: requestPath,
+    status_code: status,
+    request_id: requestId,
+    source: redactLogText(entry?.source || entry?.type || "function", 80),
+    row_id: redactLogText(entry?.rowId || entry?.id || "", 160),
+    message_truncated: entry?.messageTruncated === true || entry?.messageTruncated === "true",
+    deployment_id: deployment.uid,
+    deployment_url: redactLogText(deployment.url || "", 250)
+  };
+}
+
+async function fetchVercelApi(url, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${process.env.VERCEL_ACCESS_TOKEN}`,
+        Accept: "application/json, application/x-ndjson, text/plain"
+      }
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      const error = new Error(`Vercel API returned HTTP ${response.status}`);
+      error.upstreamStatus = response.status;
+      throw error;
+    }
+    return text;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getVercelRuntimeLogs(requestedLimit, requestId, log) {
+  const token = process.env.VERCEL_ACCESS_TOKEN || "";
+  const projectId = process.env.VERCEL_PROJECT_ID || "";
+  const teamId = process.env.VERCEL_TEAM_ID || "";
+  if (!token || !projectId || !teamId) {
+    log("error", "admin.logs.configuration_missing", {
+      missing: [
+        ...(!token ? ["VERCEL_ACCESS_TOKEN"] : []),
+        ...(!projectId ? ["VERCEL_PROJECT_ID"] : []),
+        ...(!teamId ? ["VERCEL_TEAM_ID"] : [])
+      ]
+    });
+    return sendJson(requestId.res, 503, {
+      error: "Vercel Logs are not configured. Set VERCEL_ACCESS_TOKEN, VERCEL_PROJECT_ID and VERCEL_TEAM_ID in the server environment."
+    }, requestId.id);
+  }
+
+  const limit = Math.max(1, Math.min(100, Number.parseInt(requestedLimit, 10) || 100));
+  const now = Date.now();
+  if (vercelLogsCache && now < vercelLogsCacheUntil) {
+    const cachedLogs = vercelLogsCache.logs.slice(0, limit);
+    const cached = { ...vercelLogsCache, count: cachedLogs.length, logs: cachedLogs, cache: "warm-instance" };
+    log("info", "admin.logs.cache_hit", { count: cached.logs.length });
+    return sendJson(requestId.res, 200, cached, requestId.id);
+  }
+
+  try {
+    const deploymentUrl = new URL("https://api.vercel.com/v7/deployments");
+    deploymentUrl.searchParams.set("projectId", projectId);
+    deploymentUrl.searchParams.set("target", "production");
+    deploymentUrl.searchParams.set("limit", "5");
+    deploymentUrl.searchParams.set("teamId", teamId);
+
+    const deploymentsText = await fetchVercelApi(deploymentUrl.toString());
+    const deploymentPayload = JSON.parse(deploymentsText);
+    const deployments = (Array.isArray(deploymentPayload.deployments) ? deploymentPayload.deployments : [])
+      .filter(item => item && (item.uid || item.id) && (!item.target || item.target === "production"))
+      .sort((a, b) => Number(b.createdAt || b.created || 0) - Number(a.createdAt || a.created || 0))
+      .slice(0, 5)
+      .map(item => ({
+        uid: String(item.uid || item.id),
+        url: String(item.url || ""),
+        created_at: Number(item.createdAt || item.created || 0),
+        state: String(item.readyState || item.state || "unknown"),
+        target: String(item.target || "production")
+      }));
+
+    if (!deployments.length) {
+      const empty = {
+        ok: true, source: "vercel-runtime-logs", fetched_at: new Date().toISOString(),
+        limit, count: 0, deployments_scanned: 0, partial: false, logs: []
+      };
+      vercelLogsCache = empty;
+      vercelLogsCacheUntil = Date.now() + 10000;
+      return sendJson(requestId.res, 200, empty, requestId.id);
+    }
+
+    const results = await Promise.all(deployments.map(async deployment => {
+      try {
+        const logsUrl = new URL(
+          `https://api.vercel.com/v1/projects/${encodeURIComponent(projectId)}/deployments/${encodeURIComponent(deployment.uid)}/runtime-logs`
+        );
+        logsUrl.searchParams.set("teamId", teamId);
+        const text = await fetchVercelApi(logsUrl.toString());
+        return { deployment, rows: parseVercelRuntimeLogText(text), error: null };
+      } catch (error) {
+        log("warn", "admin.logs.deployment_fetch_failed", {
+          deployment_id: deployment.uid,
+          upstream_status: error.upstreamStatus || null,
+          error_name: error.name || "Error",
+          message: redactLogText(error.message, 300)
+        });
+        return { deployment, rows: [], error };
+      }
+    }));
+
+    if (results.length && results.every(result => Boolean(result.error))) {
+      const firstError = results.find(result => result.error)?.error;
+      const aggregateError = new Error("Vercel runtime logs could not be retrieved from any recent deployment.");
+      aggregateError.upstreamStatus = firstError?.upstreamStatus || null;
+      throw aggregateError;
+    }
+
+    const normalized = results.flatMap(result => result.rows.map(row => normalizeVercelRuntimeLog(row, result.deployment)));
+    const seen = new Set();
+    const unique = normalized.filter(row => {
+      const identity = row.row_id || `${row.deployment_id}:${row.timestamp_ms}:${row.request_id}:${row.path}:${row.message}`;
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    }).sort((a, b) => Number(b.timestamp_ms || 0) - Number(a.timestamp_ms || 0)).slice(0, 100);
+
+    const payload = {
+      ok: true,
+      source: "vercel-runtime-logs",
+      fetched_at: new Date().toISOString(),
+      timezone: "UTC timestamps from Vercel; display in Africa/Lagos",
+      limit,
+      count: Math.min(unique.length, limit),
+      deployments_scanned: deployments.length,
+      deployments: deployments.map(({ uid, url, created_at, state, target }) => ({
+        id: uid, url, created_at, state, target
+      })),
+      partial: results.some(result => Boolean(result.error)),
+      logs: unique.slice(0, limit)
+    };
+    vercelLogsCache = { ...payload, limit: 100, count: unique.length, logs: unique };
+    vercelLogsCacheUntil = Date.now() + 15000;
+    log("info", "admin.logs.fetch_completed", {
+      count: payload.count,
+      deployments_scanned: payload.deployments_scanned,
+      partial: payload.partial
+    });
+    return sendJson(requestId.res, 200, payload, requestId.id);
+  } catch (error) {
+    log("error", "admin.logs.fetch_failed", {
+      upstream_status: error.upstreamStatus || null,
+      error_name: error.name || "Error",
+      message: redactLogText(error.message, 500)
+    });
+    return sendJson(requestId.res, 502, {
+      error: error.upstreamStatus === 401 || error.upstreamStatus === 403
+        ? "Vercel rejected the access token or its project permissions. Check the token and team access."
+        : "Vercel runtime logs could not be loaded. Check the server-side Vercel function logs for details."
+    }, requestId.id);
+  }
+}
+
 async function paystackRequest(path, payload, method, log) {
   if (!process.env.PAYSTACK_KEY) throw new Error("PAYSTACK_KEY is not configured");
 
@@ -806,7 +1042,7 @@ async function healthCheck(requestId, res, log) {
     service: SERVICE,
     timestamp: new Date().toISOString(),
     checks,
-    ...(databaseError ? { database_message: databaseError } : {}),
+    ...(databaseError ? { database_message: "Database readiness failed; inspect server-side function logs." } : {}),
     note: "This endpoint reports configuration presence, not the validity of secret values."
   }, requestId);
 }
@@ -882,6 +1118,39 @@ export default async function handler(req, res) {
       );
       log("info", "admin.logout");
       return sendJson(res, 200, { ok: true }, requestId);
+    }
+
+    // Gate server-to-server automation before Neon initialization or lazy maintenance.
+    // The API key is accepted only for this explicit machine-to-machine route.
+    if (path === "automation/initialize" && req.method === "POST" && !hasAutomationKey(req)) {
+      log("warn", "automation.authentication.failed");
+      return sendJson(res, 401, { error: "Unauthorized" }, requestId);
+    }
+
+    // Gate every Admin endpoint before Neon initialization or lazy maintenance.
+    // Website Admin access is session-cookie-only; API_KEY is not an Admin credential.
+    if (path.startsWith("admin/")) {
+      if (!hasAdminSession(req)) {
+        const cookieHeader = String(req.headers.cookie || "");
+        const adminCookiePresent = cookieHeader.split(";").some(part => part.trim().startsWith("dz_admin="));
+        log("warn", "admin.authorization.denied", {
+          host: String(req.headers.host || "").slice(0, 200) || null,
+          origin: String(req.headers.origin || "").slice(0, 300) || null,
+          admin_cookie_present: adminCookiePresent
+        });
+        return sendJson(res, 401, {
+          error: "Admin authentication required. Sign in again on this same domain.",
+          request_id: requestId
+        }, requestId);
+      }
+
+      if (path === "admin/logs") {
+        if (req.method !== "GET") {
+          res.setHeader("Allow", "GET");
+          return sendJson(res, 405, { error: "Method not allowed. Use GET." }, requestId);
+        }
+        return await getVercelRuntimeLogs(url.searchParams.get("limit"), { res, id: requestId }, log);
+      }
     }
 
     if (path === "payment-limits" && req.method === "GET") {
@@ -1016,11 +1285,6 @@ export default async function handler(req, res) {
     }
 
     if (path === "automation/initialize" && req.method === "POST") {
-      if (!hasAutomationKey(req)) {
-        log("warn", "automation.authentication.failed");
-        return sendJson(res, 401, { error: "Unauthorized" }, requestId);
-      }
-
       const body = await readBody(req);
       const automationAmount = Number(body.amount);
       if (!Number.isFinite(automationAmount) ||
@@ -1130,6 +1394,7 @@ export default async function handler(req, res) {
         }))
       };
       const json = JSON.stringify(payload, null, 2);
+      JSON.parse(json);
       // Fail closed if a future change accidentally produces malformed JSON.
       JSON.parse(json);
       res.statusCode = 200;
@@ -1336,7 +1601,7 @@ export default async function handler(req, res) {
         pending_transactions: Number(totals[0]?.pending || 0),
         failed_transactions: Number(totals[0]?.failed || 0)
       });
-      return sendJson(res, 200, {
+      const statsPayload = {
         window: {
           from: isoDateToDmy(from), to: isoDateToDmy(to),
           from_iso: from, to_iso: to, grain,
@@ -1354,24 +1619,56 @@ export default async function handler(req, res) {
           }
         },
         series, by_currency: byCurrency, by_type: byType, recent
-      }, requestId);
+      };
+
+      if (url.searchParams.get("download") === "json") {
+        const downloadPayload = {
+          export: {
+            application: SERVICE,
+            report: "Statistics timeline",
+            generated_at_lagos: formatTimestampLagos(new Date()),
+            timezone: "Africa/Lagos",
+            interval: grain,
+            from: isoDateToDmy(from),
+            to: isoDateToDmy(to),
+            record_count: series.length
+          },
+          summary: {
+            totals: statsPayload.totals,
+            statuses: statsPayload.statuses,
+            by_currency: statsPayload.by_currency,
+            by_type: statsPayload.by_type
+          },
+          timeline: series.map(row => ({
+            period: row.bucket,
+            all_transactions: Number(row.total || 0),
+            successful: Number(row.successful || 0),
+            pending: Number(row.pending || 0),
+            failed_or_reversed: Number(row.failed || 0),
+            successful_value_ngn: Number(row.successful_ngn || 0)
+          })),
+          recent_public_activity: recent
+        };
+        const json = JSON.stringify(downloadPayload, null, 2);
+        JSON.parse(json);
+        const safeFrom = from.replace(/-/g, "");
+        const safeTo = to.replace(/-/g, "");
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="devzikky-pay-${grain}-statistics-${safeFrom}-to-${safeTo}.json"`);
+        res.setHeader("Cache-Control", "no-store, max-age=0");
+        res.setHeader("X-Request-ID", requestId);
+        log("info", "statistics.timeline_export.completed", {
+          grain, from: isoDateToDmy(from), to: isoDateToDmy(to), buckets: series.length
+        });
+        return res.end(json);
+      }
+
+      return sendJson(res, 200, statsPayload, requestId);
     }
 
     if (path.startsWith("admin/")) {
-      if (!hasAdminSession(req)) {
-        const cookieHeader = String(req.headers.cookie || "");
-        const adminCookiePresent = cookieHeader.split(";").some(part => part.trim().startsWith("dz_admin="));
-        log("warn", "admin.authorization.denied", {
-          host: String(req.headers.host || "").slice(0, 200) || null,
-          origin: String(req.headers.origin || "").slice(0, 300) || null,
-          admin_cookie_present: adminCookiePresent
-        });
-        return sendJson(res, 401, {
-          error: "Admin authentication required. Sign in again on this same domain.",
-          request_id: requestId
-        }, requestId);
-      }
-
+      // All Admin paths reach this block only after the session gate above.
       if (path === "admin/transactions" && req.method === "GET") {
         const rows = await db`
           SELECT id, reference, name, email,

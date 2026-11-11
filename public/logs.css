@@ -1,0 +1,79 @@
+/* DEVZIKKY PAY — private runtime logs */
+.logs-login-panel { max-width: 760px; }
+.logs-key-row { display:flex; align-items:stretch; gap:10px; }
+.logs-key-row input { min-width:0; flex:1; }
+.logs-key-row button { min-width:82px; }
+.logs-workspace { display:grid; gap:18px; }
+.logs-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:22px; padding:clamp(20px,3vw,30px); border:1px solid var(--line2); background:linear-gradient(135deg,rgba(26,42,67,.96),rgba(11,18,32,.96)); box-shadow:var(--shadow); }
+.logs-heading h2 { margin:8px 0 5px; font:700 clamp(1.35rem,3vw,2rem) "Space Grotesk"; }
+.logs-heading p { margin:0; max-width:700px; }
+.logs-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.logs-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:13px; }
+.logs-metrics .card { min-width:0; padding:17px; }
+.logs-metric-label { display:block; color:var(--muted); font:600 .61rem "IBM Plex Mono"; letter-spacing:.1em; }
+.logs-metrics strong { display:block; margin-top:8px; color:var(--cyan); font:700 clamp(1.3rem,3vw,1.9rem) "Space Grotesk"; overflow-wrap:anywhere; }
+.logs-metrics .logs-error-number { color:var(--pink); }
+.logs-filter-card { padding:clamp(17px,3vw,23px); }
+.logs-filter-head,.logs-list-heading { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.logs-filter-head h3,.logs-list-heading h3,.logs-admin-api h3 { margin:5px 0 0; font:650 1.12rem "Space Grotesk"; }
+.logs-cap { padding:6px 9px; border:1px solid rgba(47,245,229,.22); border-radius:99px; color:var(--cyan); background:rgba(47,245,229,.06); font:600 .6rem "IBM Plex Mono"; white-space:nowrap; }
+.logs-filters { display:grid; grid-template-columns:minmax(150px,.75fr) minmax(150px,.75fr) minmax(220px,1.5fr); gap:12px; margin-top:17px; }
+.logs-filters label { display:grid; gap:6px; color:var(--muted); font-size:.73rem; font-weight:650; }
+.logs-filters input,.logs-filters select { width:100%; min-height:43px; padding:9px 11px; border:1px solid var(--line); border-radius:11px; color:var(--text); background:var(--panel2); outline:none; }
+.logs-filters input:focus,.logs-filters select:focus { border-color:var(--cyan); box-shadow:0 0 0 3px rgba(47,245,229,.09); }
+#logsStatusMessage { margin:13px 0 0; overflow-wrap:anywhere; }
+.logs-list-section { display:grid; gap:12px; }
+.logs-list { display:grid; gap:11px; }
+.runtime-log-card { min-width:0; padding:16px 17px; border:1px solid var(--line); border-left:4px solid #6f91ad; border-radius:15px; background:linear-gradient(145deg,rgba(18,29,47,.96),rgba(10,16,29,.96)); box-shadow:0 10px 26px rgba(0,0,0,.11); }
+.runtime-log-card.level-error { border-left-color:#ff5b82; }
+.runtime-log-card.level-warning { border-left-color:#f0b94d; }
+.runtime-log-card.level-debug { border-left-color:#9e86ed; }
+.runtime-log-top { display:flex; align-items:center; flex-wrap:wrap; gap:9px; }
+.runtime-level { padding:4px 8px; border-radius:99px; color:#c0d2e5; background:rgba(150,185,230,.1); font:700 .59rem "IBM Plex Mono"; letter-spacing:.08em; }
+.level-error .runtime-level { color:#ff9ab1; background:rgba(255,91,130,.11); }
+.level-warning .runtime-level { color:#ffd889; background:rgba(240,185,77,.11); }
+.runtime-log-top time { color:var(--muted); font:500 .65rem "IBM Plex Mono"; }
+.runtime-status { margin-left:auto; padding:4px 8px; border:1px solid var(--line); border-radius:8px; color:var(--muted); font:700 .65rem "IBM Plex Mono"; }
+.runtime-status.status-error { color:#ff8fa8; border-color:rgba(255,91,130,.25); background:rgba(255,91,130,.07); }
+.runtime-status.status-warning { color:#f4ca76; border-color:rgba(240,185,77,.25); background:rgba(240,185,77,.07); }
+.runtime-status.status-ok { color:#7de0b8; border-color:rgba(80,205,156,.22); background:rgba(80,205,156,.06); }
+.runtime-log-route { display:flex; align-items:center; flex-wrap:wrap; gap:9px; margin-top:12px; }
+.runtime-method { padding:4px 7px; border-radius:7px; color:var(--cyan); background:rgba(47,245,229,.08); font:700 .62rem "IBM Plex Mono"; }
+.runtime-log-route code { color:var(--text); font:600 .76rem "IBM Plex Mono"; overflow-wrap:anywhere; }
+.runtime-log-message { margin:11px 0; color:var(--text); font-size:.81rem; line-height:1.7; overflow-wrap:anywhere; white-space:pre-wrap; }
+.runtime-log-meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; color:var(--muted); font-size:.64rem; }
+.runtime-log-card details { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); }
+.runtime-log-card summary { cursor:pointer; color:var(--cyan); font-size:.69rem; font-weight:700; }
+.runtime-log-card dl { display:grid; grid-template-columns:110px minmax(0,1fr); gap:7px 12px; margin:12px 0 0; font-size:.68rem; }
+.runtime-log-card dt { color:var(--muted); }
+.runtime-log-card dd { margin:0; color:var(--text); overflow-wrap:anywhere; }
+.logs-empty-state { display:grid; justify-items:center; gap:6px; padding:35px 18px; border:1px dashed var(--line2); border-radius:16px; color:var(--muted); text-align:center; background:var(--panel); }
+.logs-empty-state strong { color:var(--text); font:650 1rem "Space Grotesk"; }
+.logs-empty-state p { margin:0; max-width:460px; font-size:.77rem; }
+.logs-admin-api { padding:clamp(17px,3vw,23px); }
+.admin-endpoint-catalog { display:grid; gap:13px; margin:20px 0; padding:18px; border:1px solid var(--line2); border-radius:17px; background:linear-gradient(145deg,rgba(18,29,48,.78),rgba(10,16,29,.78)); }
+.admin-endpoint-catalog h3 { margin:5px 0; font:650 1.05rem "Space Grotesk"; }
+.admin-endpoint-catalog p { margin:0; color:var(--muted); font-size:.76rem; }
+.admin-endpoint-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+.admin-endpoint-list>div { min-width:0; display:grid; gap:5px; padding:11px 12px; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,.025); }
+.admin-endpoint-list code { color:var(--cyan); font-size:.69rem; overflow-wrap:anywhere; }
+.admin-endpoint-list small { color:var(--muted); font-size:.68rem; line-height:1.5; }
+html[data-theme="light"] .logs-heading { color:#1b2940; background:linear-gradient(135deg,#fff,#edf5fb); border-color:rgba(8,126,131,.2); }
+html[data-theme="light"] .logs-heading h2,html[data-theme="light"] .logs-filter-head h3,html[data-theme="light"] .logs-list-heading h3,html[data-theme="light"] .logs-admin-api h3 { color:#1b2940; }
+html[data-theme="light"] .logs-filters input,html[data-theme="light"] .logs-filters select { color:#1b2940; background:#fff; border-color:rgba(36,54,83,.2); }
+html[data-theme="light"] .runtime-log-card { color:#26364e; background:linear-gradient(145deg,#fff,#f2f6fb); border-color:rgba(36,54,83,.15); box-shadow:0 9px 24px rgba(31,48,78,.06); }
+html[data-theme="light"] .runtime-log-route code,html[data-theme="light"] .runtime-log-message,html[data-theme="light"] .runtime-log-card dd { color:#26364e; }
+html[data-theme="light"] .runtime-log-top time,html[data-theme="light"] .runtime-log-meta,html[data-theme="light"] .runtime-log-card dt { color:#64738a; }
+html[data-theme="light"] .runtime-level { color:#4f6077; background:rgba(36,54,83,.07); }
+html[data-theme="light"] .runtime-status.status-ok { color:#126b4d; }
+html[data-theme="light"] .runtime-status.status-warning { color:#805800; }
+html[data-theme="light"] .runtime-status.status-error { color:#a12d53; }
+html[data-theme="light"] .logs-empty-state { background:rgba(255,255,255,.85); border-color:rgba(8,126,131,.23); color:#5c6980; }
+html[data-theme="light"] .logs-empty-state strong { color:#1b2940; }
+html[data-theme="light"] .admin-endpoint-catalog { background:linear-gradient(145deg,#fff,#eff5fb); border-color:rgba(8,126,131,.2); }
+html[data-theme="light"] .admin-endpoint-catalog h3 { color:#1b2940; }
+html[data-theme="light"] .admin-endpoint-list>div { background:rgba(255,255,255,.8); border-color:rgba(36,54,83,.13); }
+html[data-theme="light"] .admin-endpoint-list code { color:#087e83; }
+@media(max-width:820px) { .logs-heading { display:grid; } .logs-actions { width:100%; } .logs-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .logs-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } .logs-search-label { grid-column:1/-1; } }
+@media(max-width:540px) { .logs-key-row { gap:7px; } .logs-key-row button { min-width:70px; padding:0 12px; } .logs-actions .button { flex:1 1 auto; } .logs-metrics { gap:9px; } .logs-metrics .card { padding:13px; } .logs-filters { grid-template-columns:1fr; } .logs-search-label { grid-column:auto; } .admin-endpoint-list { grid-template-columns:1fr; } .runtime-log-card { padding:13px; } .runtime-log-card dl { grid-template-columns:88px minmax(0,1fr); } }
+@media(prefers-reduced-motion:reduce) { .runtime-log-card,.logs-actions .button { transition:none; } }

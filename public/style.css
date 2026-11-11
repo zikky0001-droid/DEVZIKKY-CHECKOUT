@@ -58,3 +58,14 @@
   .admin-transactions-table{min-width:1120px}
   .admin-transactions-table thead th,.admin-transactions-table tbody td{padding:12px 11px}
 }
+
+
+/* Private Admin endpoint catalogue */
+.admin-endpoint-catalog{display:grid;gap:13px;margin:20px 0;padding:18px;border:1px solid var(--line2);border-radius:17px;background:linear-gradient(145deg,rgba(18,29,48,.78),rgba(10,16,29,.78))}
+.admin-endpoint-catalog h3{margin:5px 0;font:650 1.05rem "Space Grotesk"}
+.admin-endpoint-catalog p{margin:0;color:var(--muted);font-size:.76rem;line-height:1.65}
+.admin-endpoint-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.admin-endpoint-list>div{min-width:0;display:grid;gap:5px;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.025)}
+.admin-endpoint-list code{color:var(--cyan);font-size:.69rem;overflow-wrap:anywhere}
+.admin-endpoint-list small{color:var(--muted);font-size:.68rem;line-height:1.5}
+@media(max-width:600px){.admin-endpoint-list{grid-template-columns:1fr}}

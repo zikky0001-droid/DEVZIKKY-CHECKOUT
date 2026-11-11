@@ -514,91 +514,36 @@ async function statisticsPage() {
   }));
   $("#statsApply").addEventListener("click", () => void loadStats());
   $("#downloadAggregate").addEventListener("click", () => {
-    if (!lastStats) return;
-    const payload = {
-      export: {
-        application: "DEVZIKKY PAY",
-        report: "Statistics timeline",
-        generated_at: new Date().toISOString(),
-        timezone: "Africa/Lagos",
-        interval: grain,
-        from: fromInput.value,
-        to: toInput.value,
-        record_count: (lastStats.series || []).length
-      },
-      summary: lastStats.summary || {},
-      timeline: (lastStats.series || []).map(row => ({
-        period: displayBucket(row.bucket),
-        all_transactions: Number(row.total || 0),
-        successful: Number(row.successful || 0),
-        pending: Number(row.pending || 0),
-        failed_or_reversed: Number(row.failed || 0),
-        successful_value_ngn: Number(row.successful_ngn || 0)
-      }))
-    };
-    const json = JSON.stringify(payload, null, 2);
-    const blob = new Blob([json], { type: "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    const safeFrom = fromInput.value.replace(/\\//g, "-");
-    const safeTo = toInput.value.replace(/\\//g, "-");
-    link.download = `devzikky-pay-${grain}-statistics-${safeFrom}-to-${safeTo}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    const fromText = fromInput.value.trim();
+    const toText = toInput.value.trim();
+    if (!parseDmy(fromText) || !parseDmy(toText)) {
+      setHint("Enter valid dates as DD/MM/YYYY before exporting chart data.");
+      return;
+    }
+    if (!lastStats) {
+      setHint("Load Statistics successfully before exporting chart data.");
+      return;
+    }
+    const query = new URLSearchParams({
+      from: fromText,
+      to: toText,
+      grain,
+      download: "json"
+    });
+    setHint("Preparing your pretty-printed Statistics JSON download…");
+    window.location.assign(`/api/stats?${query.toString()}`);
   });
 
-  $("#downloadPublicTransactions").addEventListener("click", async event => {
-    const button = event.currentTarget;
-    const originalText = button.textContent;
+  $("#downloadPublicTransactions").addEventListener("click", () => {
     const fromText = fromInput.value.trim();
     const toText = toInput.value.trim();
     if (!parseDmy(fromText) || !parseDmy(toText)) {
       setHint("Enter valid dates as DD/MM/YYYY before exporting transaction details.");
       return;
     }
-    button.disabled = true;
-    button.textContent = "Preparing transaction JSON…";
-    try {
-      const query = `stats/export?from=${encodeURIComponent(fromText)}&to=${encodeURIComponent(toText)}`;
-      const response = await fetch(`/api/${query}`, {
-        method: "GET", credentials: "same-origin", cache: "no-store",
-        headers: { Accept: "application/json" }
-      });
-      const requestId = response.headers.get("x-request-id");
-      if (!response.ok) {
-        const body = await response.text();
-        let payload = {};
-        try { payload = body ? JSON.parse(body) : {}; } catch { /* preserve HTTP error */ }
-        throw new Error(`${payload.error || `Export failed (HTTP ${response.status})`}${requestId ? ` · Request ID: ${requestId}` : ""}`);
-      }
-      if (!(response.headers.get("content-type") || "").includes("application/json")) {
-        throw new Error("The server did not return a JSON document.");
-      }
-      const blob = await response.blob();
-      const jsonText = await blob.text();
-      try { JSON.parse(jsonText); } catch { throw new Error("The server response is not valid JSON; no file was downloaded."); }
-      const jsonBlob = new Blob([jsonText], { type: "application/json;charset=utf-8" });
-      const objectUrl = URL.createObjectURL(jsonBlob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      const disposition = response.headers.get("content-disposition") || "";
-      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "devzikky-pay-public-transactions.json";
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
-      setHint(`Downloaded ${filename}. Public notes are included only when donors opted in.`);
-    } catch (error) {
-      setHint(`Transaction export failed: ${error.message}`);
-      console.error("[DEVZIKKY PAY] Public transaction export failed", { message: error.message });
-    } finally {
-      button.disabled = false;
-      button.textContent = originalText;
-    }
+    const query = new URLSearchParams({ from: fromText, to: toText });
+    setHint("Preparing your public transaction JSON download…");
+    window.location.assign(`/api/stats/export?${query.toString()}`);
   });
   await loadStats();
 }
@@ -802,3 +747,154 @@ checkoutPage();
 thankYouPage();
 statisticsPage();
 adminPage();
+logsPage();
+
+
+async function logsPage() {
+  const loginForm = $("#logsLoginForm");
+  if (!loginForm) return;
+
+  const loginPanel = $("#logsLoginPanel");
+  const logsPanel = $("#logsPanel");
+  const keyInput = $("#logsAdminKey");
+  const keyToggle = $("#toggleLogsKey");
+  const loginMessage = $("#logsLoginMessage");
+  const statusMessage = $("#logsStatusMessage");
+  const logsList = $("#logsList");
+  const levelFilter = $("#logsLevelFilter");
+  const statusFilter = $("#logsStatusFilter");
+  const searchInput = $("#logsSearch");
+  let allLogs = [];
+  let isLoading = false;
+
+  const lagosTime = value => {
+    const date = new Date(Number(value));
+    if (!Number.isFinite(date.getTime())) return "Unknown time";
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Africa/Lagos", day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+    }).format(date) + " WAT";
+  };
+
+  const renderLogs = () => {
+    const level = levelFilter.value;
+    const status = statusFilter.value;
+    const query = searchInput.value.trim().toLowerCase();
+    const filtered = allLogs.filter(item => {
+      if (level !== "all" && String(item.level).toLowerCase() !== level) return false;
+      const code = Number(item.status_code || 0);
+      if (status === "5xx" && !(code >= 500 && code <= 599)) return false;
+      if (status === "4xx" && !(code >= 400 && code <= 499)) return false;
+      if (status === "2xx" && !(code >= 200 && code <= 299)) return false;
+      if (query) {
+        const haystack = [item.message, item.path, item.request_id, item.domain, item.deployment_id, item.method, item.status_code]
+          .join(" ").toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+      return true;
+    });
+
+    $("#logsFilteredCount").textContent = `${filtered.length} shown · ${allLogs.length} fetched`;
+    if (!filtered.length) {
+      logsList.innerHTML = '<div class="logs-empty-state"><span>◎</span><strong>No matching runtime events</strong><p>Try another severity, status or search term.</p></div>';
+      return;
+    }
+
+    logsList.innerHTML = filtered.map(item => {
+      const severity = String(item.level || "info").toLowerCase();
+      const statusCode = item.status_code == null ? "—" : String(item.status_code);
+      const method = escapeHtml(item.method || "—");
+      const route = escapeHtml(item.path || "(no request path)");
+      const message = escapeHtml(item.message || "Runtime event");
+      const requestId = escapeHtml(item.request_id || "Not provided");
+      const deployment = escapeHtml(item.deployment_id || "Unknown deployment");
+      const source = escapeHtml(item.source || "function");
+      const domain = escapeHtml(item.domain || "");
+      return `<article class="runtime-log-card level-${escapeHtml(severity)}"><div class="runtime-log-top"><span class="runtime-level">${escapeHtml(severity.toUpperCase())}</span><time>${escapeHtml(lagosTime(item.timestamp_ms))}</time><span class="runtime-status status-${Number(statusCode) >= 500 ? "error" : Number(statusCode) >= 400 ? "warning" : "ok"}">${escapeHtml(statusCode)}</span></div><div class="runtime-log-route"><span class="runtime-method">${method}</span><code>${route}</code></div><p class="runtime-log-message">${message}</p><div class="runtime-log-meta"><span>${domain || source}</span><span>Request: ${requestId}</span></div><details><summary>Deployment and event details</summary><dl><dt>Deployment</dt><dd>${deployment}</dd><dt>Source</dt><dd>${source}</dd><dt>Request ID</dt><dd>${requestId}</dd><dt>Raw timestamp</dt><dd>${escapeHtml(item.timestamp_ms || "—")}</dd></dl></details></article>`;
+    }).join("");
+  };
+
+  async function loadLogs(quiet = false) {
+    if (isLoading) return;
+    isLoading = true;
+    const refresh = $("#logsRefresh");
+    if (refresh) { refresh.disabled = true; refresh.textContent = "Loading…"; }
+    if (statusMessage) statusMessage.textContent = "Requesting the latest available production logs…";
+    try {
+      const data = await api("admin/logs?limit=100");
+      allLogs = Array.isArray(data.logs) ? data.logs : [];
+      $("#logsCount").textContent = Number(data.count ?? allLogs.length).toLocaleString();
+      $("#logsErrorCount").textContent = allLogs.filter(item => item.level === "error" || Number(item.status_code) >= 500).length.toLocaleString();
+      $("#logsDeploymentCount").textContent = Number(data.deployments_scanned || 0).toLocaleString();
+      $("#logsLastRefresh").textContent = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Africa/Lagos", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+      }).format(new Date());
+      if (statusMessage) {
+        statusMessage.textContent = data.partial
+          ? "Some deployments could not be read. Showing the available results; see server logs for details."
+          : `${allLogs.length} runtime entries loaded from ${Number(data.deployments_scanned || 0)} recent production deployments. Maximum 100 entries.`;
+      }
+      renderLogs();
+      loginPanel.classList.add("hidden");
+      logsPanel.classList.remove("hidden");
+    } catch (error) {
+      if (error.status === 401 || /Admin authentication required/i.test(error.message)) {
+        logsPanel.classList.add("hidden");
+        loginPanel.classList.remove("hidden");
+        if (!quiet && loginMessage) loginMessage.textContent = "Your Admin session has expired. Sign in again.";
+      } else {
+        // Authentication is valid; keep the private monitor visible so that
+        // configuration/provider errors are not hidden behind the login card.
+        loginPanel.classList.add("hidden");
+        logsPanel.classList.remove("hidden");
+        if (statusMessage) statusMessage.textContent = error.message;
+        if (logsList) logsList.innerHTML = '<div class="logs-empty-state"><strong>Logs are temporarily unavailable</strong><p>Check the Vercel integration settings and refresh.</p></div>';
+      }
+      if (!quiet) console.error("[DEVZIKKY PAY] Vercel runtime logs failed", { message: error.message });
+    } finally {
+      isLoading = false;
+      if (refresh) { refresh.disabled = false; refresh.textContent = "↻ Refresh logs"; }
+    }
+  }
+
+  keyToggle?.addEventListener("click", () => {
+    const reveal = keyInput.type === "password";
+    keyInput.type = reveal ? "text" : "password";
+    keyToggle.textContent = reveal ? "Hide" : "Show";
+    keyToggle.setAttribute("aria-pressed", String(reveal));
+    keyToggle.setAttribute("aria-label", reveal ? "Hide admin key" : "Show admin key");
+  });
+
+  loginForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    const submit = loginForm.querySelector('button[type="submit"]');
+    if (submit) { submit.disabled = true; submit.textContent = "Signing in…"; }
+    if (loginMessage) loginMessage.textContent = "Verifying Admin credentials…";
+    try {
+      await api("admin/login", { method: "POST", body: JSON.stringify({ key: keyInput.value }) });
+      loginForm.reset();
+      if (loginMessage) loginMessage.textContent = "";
+      await loadLogs(false);
+    } catch (error) {
+      if (loginMessage) loginMessage.textContent = error.message;
+    } finally {
+      if (submit) { submit.disabled = false; submit.textContent = "Sign in securely ↗"; }
+    }
+  });
+
+  $("#logsRefresh")?.addEventListener("click", () => void loadLogs(false));
+  $("#logsLogout")?.addEventListener("click", async () => {
+    try {
+      await api("admin/logout", { method: "POST", body: "{}" });
+      allLogs = [];
+      logsPanel.classList.add("hidden");
+      loginPanel.classList.remove("hidden");
+      if (loginMessage) loginMessage.textContent = "You have been signed out.";
+    } catch (error) {
+      if (statusMessage) statusMessage.textContent = error.message;
+    }
+  });
+  [levelFilter, statusFilter].forEach(input => input?.addEventListener("change", renderLogs));
+  searchInput?.addEventListener("input", renderLogs);
+  await loadLogs(true);
+}
