@@ -1087,24 +1087,61 @@ export default async function handler(req, res) {
             BETWEEN ${from}::date AND ${to}::date
         ORDER BY COALESCE(paid_at, created_at) DESC
       `;
-      const columns = ["Transaction reference", "Amount (NGN)", "Original currency", "Payment type", "Payment date (Lagos)", "Donor note (public consent only)"];
-      const csv = "\uFEFF" + [
-        columns.map(csvCellSafe).join(","),
-        ...rows.map(row => [row.reference, Number(row.amount_ngn || 0).toFixed(2), row.original_currency,
-          exportLabel(row.type, "type"), formatTimestampExport(row.paid_at_lagos), row.public_note]
-          .map(csvCellSafe).join(","))
-      ].join("\r\n");
+      const formatPublicLagos = value => {
+        if (!value) return null;
+        const date = new Date(value);
+        if (!Number.isFinite(date.getTime())) return null;
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+        }).formatToParts(date);
+        const fields = Object.fromEntries(parts.filter(part => part.type !== "literal")
+          .map(part => [part.type, part.value]));
+        return `${fields.year}-${fields.month}-${fields.day} ${fields.hour}:${fields.minute}:${fields.second}`;
+      };
+      const payload = {
+        export: {
+          application: "DEVZIKKY PAY",
+          report: "Public successful payment activity",
+          generated_at_lagos: formatPublicLagos(new Date()),
+          timezone: "Africa/Lagos",
+          from: isoDateToDmy(from),
+          to: isoDateToDmy(to),
+          record_count: rows.length,
+          privacy: "Donor names, email addresses and private notes are excluded."
+        },
+        transactions: rows.map(row => ({
+          transaction: {
+            reference: row.reference,
+            payment_type: exportLabel(row.type, "type"),
+            status: "Successful"
+          },
+          amounts: {
+            received_ngn: Number(row.amount_ngn || 0),
+            original_currency: row.original_currency || null
+          },
+          timestamps: {
+            paid_at_lagos: formatPublicLagos(row.paid_at_lagos)
+          },
+          donor_note: row.public_note ? {
+            text: row.public_note,
+            visibility: "public"
+          } : null
+        }))
+      };
+      const json = JSON.stringify(payload, null, 2) + "\\n";
       res.statusCode = 200;
-      res.setHeader("Content-Type", "text/csv; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="devzikky-pay-public-transactions-${from}-to-${to}.csv"`);
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="devzikky-pay-public-transactions-${from}-to-${to}.json"`);
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("X-Request-ID", requestId);
       log("info", "statistics.public_export.completed", {
         rows: rows.length,
         from: isoDateToDmy(from),
-        to: isoDateToDmy(to)
+        to: isoDateToDmy(to),
+        format: "json"
       });
-      return res.end(csv);
+      return res.end(json);
     }
 
     if (path === "stats" && req.method === "GET") {
@@ -1374,88 +1411,61 @@ export default async function handler(req, res) {
           ORDER BY created_at DESC
         `;
 
-        const exportFormat = String(url.searchParams.get("format") || "csv").toLowerCase();
-        if (!["csv", "json"].includes(exportFormat)) {
-          return sendJson(res, 400, { error: "Unsupported export format. Use csv or json." }, requestId);
-        }
+        const formatJsonLagos = value => {
+          if (!value) return null;
+          const date = new Date(value);
+          if (!Number.isFinite(date.getTime())) return null;
+          const parts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit",
+            hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+          }).formatToParts(date);
+          const fields = Object.fromEntries(parts.filter(part => part.type !== "literal")
+            .map(part => [part.type, part.value]));
+          return `${fields.year}-${fields.month}-${fields.day} ${fields.hour}:${fields.minute}:${fields.second}`;
+        };
 
-        if (exportFormat === "json") {
-          const formatJsonLagos = value => {
-            if (!value) return null;
-            const date = new Date(value);
-            if (!Number.isFinite(date.getTime())) return null;
-            const parts = new Intl.DateTimeFormat("en-CA", {
-              timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit",
-              hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
-            }).formatToParts(date);
-            const fields = Object.fromEntries(parts.filter(part => part.type !== "literal")
-              .map(part => [part.type, part.value]));
-            return `${fields.year}-${fields.month}-${fields.day} ${fields.hour}:${fields.minute}:${fields.second}`;
-          };
-          const payload = {
-            export: {
-              application: "DEVZIKKY PAY",
-              report: "Transaction records",
-              generated_at_lagos: formatJsonLagos(new Date()),
-              timezone: "Africa/Lagos",
-              status_filter: requestedStatus,
-              record_count: rows.length
+        const payload = {
+          export: {
+            application: "DEVZIKKY PAY",
+            report: "Transaction records",
+            generated_at_lagos: formatJsonLagos(new Date()),
+            timezone: "Africa/Lagos",
+            status_filter: requestedStatus,
+            record_count: rows.length
+          },
+          transactions: rows.map(row => ({
+            transaction: {
+              reference: row.reference,
+              payment_type: exportLabel(row.type, "type"),
+              payment_source: exportLabel(row.source, "source"),
+              status: exportLabel(row.status, "status")
             },
-            transactions: rows.map(row => ({
-              transaction: {
-                reference: row.reference,
-                payment_type: exportLabel(row.type, "type"),
-                payment_source: exportLabel(row.source, "source"),
-                status: exportLabel(row.status, "status")
-              },
-              donor: {
-                name: row.name || null,
-                email: row.email || null,
-                note: row.note || null,
-                note_visibility: row.note_public ? "public" : "private"
-              },
-              amounts: {
-                received_ngn: Number(row.amount_ngn || 0),
-                original_amount: row.original_amount == null ? null : Number(row.original_amount),
-                original_currency: row.original_currency || null
-              },
-              timestamps: {
-                created_at_lagos: formatJsonLagos(row.created_at),
-                paid_at_lagos: formatJsonLagos(row.paid_at)
-              }
-            }))
-          };
-          const json = JSON.stringify(payload, null, 2) + "\n";
-          res.statusCode = 200;
-          res.setHeader("Content-Type", "application/json; charset=utf-8");
-          res.setHeader("Content-Disposition", `attachment; filename="devzikky-pay-${requestedStatus}-transactions.json"`);
-          res.setHeader("Cache-Control", "no-store");
-          res.setHeader("X-Request-ID", requestId);
-          log("info", "admin.export.completed", { rows: rows.length, status: requestedStatus, format: "json" });
-          return res.end(json);
-        }
+            donor: {
+              name: row.name || null,
+              email: row.email || null,
+              note: row.note || null,
+              note_visibility: row.note_public ? "public" : "private"
+            },
+            amounts: {
+              received_ngn: Number(row.amount_ngn || 0),
+              original_amount: row.original_amount == null ? null : Number(row.original_amount),
+              original_currency: row.original_currency || null
+            },
+            timestamps: {
+              created_at_lagos: formatJsonLagos(row.created_at),
+              paid_at_lagos: formatJsonLagos(row.paid_at)
+            }
+          }))
+        };
 
-        const columns = ["Transaction reference", "Donor name", "Email address", "Amount received (NGN)",
-          "Original amount", "Original currency", "Payment type", "Donor note", "Note visibility",
-          "Payment source", "Payment status", "Created (Lagos time)", "Paid (Lagos time)"];
-        const csv = "\uFEFF" + [
-          columns.map(csvCellSafe).join(","),
-          ...rows.map(row => [row.reference, row.name, row.email, Number(row.amount_ngn || 0).toFixed(2),
-            row.original_amount == null ? "" : Number(row.original_amount).toFixed(2), row.original_currency,
-            exportLabel(row.type, "type"), row.note,
-            row.note_public ? "Public — donor consented" : "Private — admin only",
-            exportLabel(row.source, "source"), exportLabel(row.status, "status"),
-            formatTimestampExport(row.created_at), formatTimestampExport(row.paid_at)]
-            .map(csvCellSafe).join(","))
-        ].join("\r\n");
-
+        const json = JSON.stringify(payload, null, 2) + "\\n";
         res.statusCode = 200;
-        res.setHeader("Content-Type", "text/csv; charset=utf-8");
-        res.setHeader("Content-Disposition", `attachment; filename="devzikky-pay-${requestedStatus}-transactions.csv"`);
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="devzikky-pay-${requestedStatus}-transactions.json"`);
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("X-Request-ID", requestId);
-        log("info", "admin.export.completed", { rows: rows.length, status: requestedStatus });
-        return res.end(csv);
+        log("info", "admin.export.completed", { rows: rows.length, status: requestedStatus, format: "json" });
+        return res.end(json);
       }
     }
 

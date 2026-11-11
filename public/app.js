@@ -515,17 +515,35 @@ async function statisticsPage() {
   $("#statsApply").addEventListener("click", () => void loadStats());
   $("#downloadAggregate").addEventListener("click", () => {
     if (!lastStats) return;
-    const rows = [["Reporting period", "All transactions", "Successful", "Pending", "Failed / reversed", "Successful value (NGN)"],
-      ...(lastStats.series || []).map(row => [displayBucket(row.bucket), row.total, row.successful, row.pending, row.failed, Number(row.successful_ngn || 0).toFixed(2)])];
-    const csvCell = value => `"${String(value ?? "").replace(/"/g, '""')}"`;
-    const csv = "\uFEFF" + rows.map(row => row.map(csvCell).join(",")).join("\r\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const payload = {
+      export: {
+        application: "DEVZIKKY PAY",
+        report: "Statistics timeline",
+        generated_at: new Date().toISOString(),
+        timezone: "Africa/Lagos",
+        interval: grain,
+        from: fromInput.value,
+        to: toInput.value,
+        record_count: (lastStats.series || []).length
+      },
+      summary: lastStats.summary || {},
+      timeline: (lastStats.series || []).map(row => ({
+        period: displayBucket(row.bucket),
+        all_transactions: Number(row.total || 0),
+        successful: Number(row.successful || 0),
+        pending: Number(row.pending || 0),
+        failed_or_reversed: Number(row.failed || 0),
+        successful_value_ngn: Number(row.successful_ngn || 0)
+      }))
+    };
+    const json = JSON.stringify(payload, null, 2) + "\\n";
+    const blob = new Blob([json], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    const safeFrom = fromInput.value.replace(/\//g, "-");
-    const safeTo = toInput.value.replace(/\//g, "-");
-    link.download = `devzikky-pay-${grain}-statistics-${safeFrom}-to-${safeTo}.csv`;
+    const safeFrom = fromInput.value.replace(/\\//g, "-");
+    const safeTo = toInput.value.replace(/\\//g, "-");
+    link.download = `devzikky-pay-${grain}-statistics-${safeFrom}-to-${safeTo}.json`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -542,12 +560,12 @@ async function statisticsPage() {
       return;
     }
     button.disabled = true;
-    button.textContent = "Preparing transaction CSV…";
+    button.textContent = "Preparing transaction JSON…";
     try {
       const query = `stats/export?from=${encodeURIComponent(fromText)}&to=${encodeURIComponent(toText)}`;
       const response = await fetch(`/api/${query}`, {
         method: "GET", credentials: "same-origin", cache: "no-store",
-        headers: { Accept: "text/csv, application/json" }
+        headers: { Accept: "application/json" }
       });
       const requestId = response.headers.get("x-request-id");
       if (!response.ok) {
@@ -556,15 +574,18 @@ async function statisticsPage() {
         try { payload = body ? JSON.parse(body) : {}; } catch { /* preserve HTTP error */ }
         throw new Error(`${payload.error || `Export failed (HTTP ${response.status})`}${requestId ? ` · Request ID: ${requestId}` : ""}`);
       }
-      if (!(response.headers.get("content-type") || "").includes("text/csv")) {
-        throw new Error("The server returned an unexpected export format.");
+      if (!(response.headers.get("content-type") || "").includes("application/json")) {
+        throw new Error("The server did not return a JSON document.");
       }
       const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
+      const jsonText = await blob.text();
+      try { JSON.parse(jsonText); } catch { throw new Error("The server response is not valid JSON; no file was downloaded."); }
+      const jsonBlob = new Blob([jsonText], { type: "application/json;charset=utf-8" });
+      const objectUrl = URL.createObjectURL(jsonBlob);
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
       const disposition = response.headers.get("content-disposition") || "";
-      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "devzikky-pay-public-transactions.csv";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "devzikky-pay-public-transactions.json";
       anchor.download = filename;
       document.body.appendChild(anchor);
       anchor.click();
@@ -612,35 +633,29 @@ function renderAdminTransactions() {
   const labels = { all: "All transactions", success: "Successful transactions", pending: "Pending transactions", failed: "Failed / reversed transactions" };
   const summary = $("#adminStatusSummary");
   if (summary) {
-    summary.textContent = `${labels[activeAdminStatus]} · ${rows.length.toLocaleString()} records. CSV and structured JSON exports include all matching records, not only the latest 500 shown here.`;
-  }
-  const download = $("#adminStatusDownload");
-  if (download) {
-    download.href = `/api/admin/export?status=${encodeURIComponent(activeAdminStatus)}&format=csv`;
-    download.textContent = `Download ${activeAdminStatus === "all" ? "all" : activeAdminStatus} CSV ↓`;
+    summary.textContent = `${labels[activeAdminStatus]} · ${rows.length.toLocaleString()} records shown. JSON export includes every matching record, not only the latest 500 shown here.`;
   }
   const jsonDownload = $("#adminStatusJsonDownload");
   if (jsonDownload) {
-    jsonDownload.href = `/api/admin/export?status=${encodeURIComponent(activeAdminStatus)}&format=json`;
-    jsonDownload.textContent = `Download ${activeAdminStatus === "all" ? "all" : activeAdminStatus} JSON ↓`;
+    jsonDownload.href = `/api/admin/export?status=${encodeURIComponent(activeAdminStatus)}`;
+    jsonDownload.textContent = `Export ${activeAdminStatus === "all" ? "all" : activeAdminStatus} records · JSON ↓`;
   }
   const table = rows.length ? `<table class="admin-transactions-table">
-    <thead><tr>${["Reference", "Name", "Email", "NGN", "Original", "Type", "Note", "Note visibility", "Source", "Status", "Created · Lagos", "Paid · Lagos"].map(value => `<th>${escapeHtml(value)}</th>`).join("")}</tr></thead>
+    <thead><tr>${["Reference", "Donor", "Amount received", "Original amount", "Type", "Donor note", "Visibility", "Source", "Status", "Created · Lagos", "Paid · Lagos"].map(value => `<th>${escapeHtml(value)}</th>`).join("")}</tr></thead>
     <tbody>${rows.map(row => `<tr>
-      <td>${escapeHtml(row.reference)}</td>
-      <td>${escapeHtml(row.name || "—")}</td>
-      <td>${escapeHtml(row.email || "—")}</td>
-      <td>${escapeHtml(money(row.amount_ngn))}</td>
-      <td>${escapeHtml(`${row.original_amount ?? "—"} ${row.original_currency || ""}`)}</td>
-      <td>${escapeHtml(row.type || "—")}</td>
-      <td class="admin-note-cell"><span title="${escapeHtml(row.note || "")}">${escapeHtml(row.note || "—")}</span></td>
-      <td><span class="admin-note-visibility ${row.note_public ? "is-public" : "is-private"}">${row.note_public ? "🌟 Public" : "🔒 Private"}</span></td>
+      <td><span class="admin-reference">${escapeHtml(row.reference)}</span></td>
+      <td><span class="admin-donor-name">${escapeHtml(row.name || "Anonymous")}</span><span class="admin-donor-email">${escapeHtml(row.email || "—")}</span></td>
+      <td><span class="admin-amount">${escapeHtml(money(row.amount_ngn))}</span><span class="admin-currency">NGN received</span></td>
+      <td><span class="admin-original-amount">${escapeHtml(row.original_amount ?? "—")}</span><span class="admin-currency">${escapeHtml(row.original_currency || "")}</span></td>
+      <td><span class="admin-type-pill">${escapeHtml(row.type || "—")}</span></td>
+      <td class="admin-note-cell"><span title="${escapeHtml(row.note || "")}">${escapeHtml(row.note || "No note supplied")}</span></td>
+      <td><span class="admin-note-visibility ${row.note_public ? "is-public" : "is-private"}">${row.note_public ? "✦ Public" : "🔒 Private"}</span></td>
       <td>${escapeHtml(row.source || "—")}</td>
-      <td>${escapeHtml(row.status || "—")}</td>
-      <td>${escapeHtml(formatLagosDateTime(row.created_at))}</td>
-      <td>${escapeHtml(formatLagosDateTime(row.paid_at))}</td>
+      <td><span class="admin-status-pill status-${escapeHtml(String(row.status || "unknown").toLowerCase())}">${escapeHtml(row.status || "Unknown")}</span></td>
+      <td><span class="admin-date">${escapeHtml(formatLagosDateTime(row.created_at))}</span></td>
+      <td><span class="admin-date">${escapeHtml(formatLagosDateTime(row.paid_at))}</span></td>
     </tr>`).join("")}</tbody>
-  </table>` : '<p class="table-empty">No transactions in this status.</p>';
+  </table>` : '<div class="admin-empty-state"><span>◎</span><strong>No transactions found</strong><p>There are no records in this status filter yet.</p></div>';
   const rowsContainer = $("#adminRows");
   if (rowsContainer) rowsContainer.innerHTML = table;
   document.querySelectorAll("[data-admin-status]").forEach(button => {
@@ -653,33 +668,37 @@ async function downloadAdminExport(link) {
   const message = $("#adminActionMessage");
   const originalText = link.textContent;
   link.setAttribute("aria-busy", "true");
-  link.textContent = "Preparing CSV…";
+  link.textContent = "Preparing JSON…";
   if (message) message.textContent = "";
   try {
     const response = await fetch(link.getAttribute("href"), {
       method: "GET",
       credentials: "same-origin",
       cache: "no-store",
-      headers: { "Accept": "text/csv, application/json" }
+      headers: { "Accept": "application/json" }
     });
     const requestId = response.headers.get("x-request-id");
     if (!response.ok) {
       const text = await response.text();
       let payload = {};
       try { payload = text ? JSON.parse(text) : {}; } catch { /* non-JSON error handled below */ }
-      const detail = payload.error || `CSV export failed (HTTP ${response.status}).`;
+      const detail = payload.error || `JSON export failed (HTTP ${response.status}).`;
       if (response.status === 401) {
         throw new Error(`${detail} Make sure you are signed in on this exact domain, then sign in again.${requestId ? ` Request ID: ${requestId}` : ""}`);
       }
       throw new Error(`${detail}${requestId ? ` Request ID: ${requestId}` : ""}`);
     }
     const contentType = response.headers.get("content-type") || "";
-    if (!contentType.includes("text/csv")) throw new Error("The export endpoint returned an unexpected content type.");
+    if (!contentType.includes("application/json")) throw new Error("The export endpoint did not return a JSON document.");
     const blob = await response.blob();
+    // Validate the downloaded payload before saving it as a .json file.
+    const jsonText = await blob.text();
+    try { JSON.parse(jsonText); } catch { throw new Error("The server response is not valid JSON; no file was downloaded."); }
+    const jsonBlob = new Blob([jsonText], { type: "application/json;charset=utf-8" });
     const disposition = response.headers.get("content-disposition") || "";
     const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
-    const filename = filenameMatch?.[1] || "devzikky-pay-transactions.csv";
-    const objectUrl = URL.createObjectURL(blob);
+    const filename = filenameMatch?.[1] || "devzikky-pay-transactions.json";
+    const objectUrl = URL.createObjectURL(jsonBlob);
     const download = document.createElement("a");
     download.href = objectUrl;
     download.download = filename;

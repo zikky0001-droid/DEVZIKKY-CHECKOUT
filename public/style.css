@@ -15,3 +15,46 @@
 
 
 .admin-note-visibility{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border:1px solid var(--line);border-radius:999px;font-size:.72rem;font-weight:700;white-space:nowrap}.admin-note-visibility.is-public{color:#32c997;border-color:rgba(50,201,151,.3);background:rgba(50,201,151,.08)}.admin-note-visibility.is-private{color:var(--muted);background:rgba(140,150,170,.06)}
+
+
+/* Control Room: refined transaction workspace */
+#adminPanel{border:1px solid rgba(87,218,225,.22);background:linear-gradient(145deg,rgba(17,27,47,.96),rgba(8,13,25,.97));box-shadow:0 28px 85px rgba(0,0,0,.34),0 0 45px rgba(46,224,220,.055)}
+#adminPanel>div:first-child{padding-bottom:16px;border-bottom:1px solid rgba(150,185,230,.13)}
+.admin-status-tools{display:flex;align-items:center;gap:9px!important;padding:12px;border:1px solid rgba(150,185,230,.12);border-radius:17px;background:rgba(255,255,255,.025)}
+.admin-status-tools [data-admin-status]{min-height:42px;border-radius:12px}
+.admin-status-tools [data-admin-status].primary{color:#07121b;background:linear-gradient(115deg,#4ce9dd,#9e8bff);border-color:transparent;box-shadow:0 7px 22px rgba(47,245,229,.16)}
+#adminStatusJsonDownload{margin-left:auto;min-height:44px;border:0;color:#fff;background:linear-gradient(110deg,#783ee0,#c23fa5 55%,#078f99);box-shadow:0 8px 25px rgba(130,60,210,.2)}
+#adminStatusSummary{margin:14px 2px 8px;color:#c5d2e3;font-weight:600}
+#adminRows{border:1px solid rgba(133,171,214,.18);border-radius:18px;background:rgba(4,9,19,.58);box-shadow:inset 0 1px rgba(255,255,255,.025)}
+.admin-transactions-table{width:100%;min-width:1180px;border-collapse:separate;border-spacing:0;font-size:.76rem}
+.admin-transactions-table thead th{position:sticky;top:0;z-index:2;padding:15px 14px;color:#8ef5eb;background:#101d30;border-bottom:1px solid rgba(47,245,229,.22);font-size:.65rem;letter-spacing:.07em;text-transform:uppercase;white-space:nowrap}
+.admin-transactions-table tbody td{padding:15px 14px;border-bottom:1px solid rgba(155,180,215,.09);vertical-align:middle;background:transparent}
+.admin-transactions-table tbody tr{transition:background .18s ease}
+.admin-transactions-table tbody tr:hover td{background:rgba(65,210,215,.055)}
+.admin-transactions-table tbody tr:last-child td{border-bottom:0}
+.admin-reference{display:inline-block;color:#8feee7;font:600 .72rem "IBM Plex Mono";white-space:nowrap}
+.admin-donor-name,.admin-amount{display:block;color:#f2f6ff;font-weight:750}
+.admin-donor-email,.admin-currency{display:block;margin-top:3px;color:#8495ac;font-size:.66rem;white-space:nowrap}
+.admin-amount{font:700 .9rem "Space Grotesk";color:#80f0c6;white-space:nowrap}
+.admin-original-amount{display:block;color:#dce5f2;font-weight:650}
+.admin-type-pill{display:inline-flex;padding:5px 9px;border:1px solid rgba(167,121,255,.24);border-radius:999px;color:#cbb4ff;background:rgba(167,121,255,.08);font-size:.68rem;font-weight:700}
+.admin-status-pill{display:inline-flex;align-items:center;padding:6px 10px;border:1px solid rgba(150,185,230,.16);border-radius:999px;font-size:.68rem;font-weight:750;white-space:nowrap}
+.admin-status-pill.status-success{color:#80f0c6;border-color:rgba(80,220,170,.25);background:rgba(80,220,170,.09)}
+.admin-status-pill.status-pending{color:#ffd88c;border-color:rgba(255,216,140,.25);background:rgba(255,216,140,.08)}
+.admin-status-pill.status-failed,.admin-status-pill.status-reversed{color:#ff8eac;border-color:rgba(255,100,145,.25);background:rgba(255,100,145,.08)}
+.admin-date{display:block;color:#bac8da;font-size:.7rem;white-space:nowrap}
+.admin-note-cell{min-width:190px;max-width:270px;white-space:normal;overflow-wrap:anywhere}
+.admin-note-cell span{display:block;max-height:5.5em;overflow:auto;white-space:pre-wrap;color:#c8d3e2;line-height:1.55}
+.admin-note-visibility{font-size:.67rem}
+.admin-empty-state{display:grid;justify-items:center;gap:5px;padding:42px 18px;text-align:center;color:#aebbd0}
+.admin-empty-state>span{color:#62e9df;font-size:2rem}
+.admin-empty-state strong{color:#f3f6ff;font:650 1rem "Space Grotesk"}
+.admin-empty-state p{margin:0;color:#8c9bb0;font-size:.78rem}
+#adminActionMessage{padding-inline:3px}
+@media(max-width:680px){
+  #adminPanel{padding:16px!important}
+  .admin-status-tools{padding:9px}
+  #adminStatusJsonDownload{width:100%;margin:4px 0 0}
+  .admin-transactions-table{min-width:1120px}
+  .admin-transactions-table thead th,.admin-transactions-table tbody td{padding:12px 11px}
+}
