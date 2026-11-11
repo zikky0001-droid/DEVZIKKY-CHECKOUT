@@ -115,3 +115,173 @@ html[data-theme="light"] .loader-skip { color: #344259; border-color: rgba(36,54
 }
 @media (max-width: 400px) { .header-inner { gap: 9px; } .brand-copy small { display: none; } .theme-toggle { width: 39px; min-width: 39px; height: 39px; } .menu-toggle { min-width: 42px; } }
 @media (prefers-reduced-motion: reduce) { .theme-toggle { transition: none; } }
+
+
+/* --------------------------------------------------------------------------
+   LIGHT THEME — ADMIN CONTROL ROOM CONTRAST PATCH
+   Keep the admin workspace bright in light mode; the dark palette is scoped
+   to the default theme and must not leak into this surface.
+   -------------------------------------------------------------------------- */
+html[data-theme="light"] .button.secondary {
+  color: #24334b;
+  background: linear-gradient(180deg, #ffffff, #edf3fa);
+  border-color: rgba(43, 65, 98, .20);
+  box-shadow: 0 3px 10px rgba(35, 55, 85, .06);
+}
+html[data-theme="light"] .button.secondary:hover {
+  color: #10243c;
+  background: #e8f2fb;
+  border-color: rgba(8, 126, 131, .38);
+}
+html[data-theme="light"] .button.ghost {
+  color: #087e83;
+  background: rgba(8, 126, 131, .07);
+  border-color: rgba(8, 126, 131, .28);
+}
+html[data-theme="light"] #toggleAdminKey {
+  min-width: 76px;
+  color: #23344d;
+  background: #eaf1f8;
+  border: 1px solid rgba(36, 54, 83, .24);
+  font-weight: 750;
+  box-shadow: 0 3px 10px rgba(31, 48, 78, .07);
+}
+html[data-theme="light"] #toggleAdminKey:hover,
+html[data-theme="light"] #toggleAdminKey:focus-visible {
+  color: #075e65;
+  background: #dff2f2;
+  border-color: rgba(8, 126, 131, .48);
+}
+
+/* The authenticated Control Room intentionally uses a dark surface in the
+   default theme. Replace every dark-only surface/text token in light mode. */
+html[data-theme="light"] #adminPanel {
+  color: #1b2940;
+  border: 1px solid rgba(8, 126, 131, .24);
+  background:
+    radial-gradient(ellipse at 100% 0%, rgba(87, 150, 220, .12), transparent 48%),
+    linear-gradient(145deg, #ffffff 0%, #f3f7fd 58%, #edf5fb 100%);
+  box-shadow: 0 22px 60px rgba(31, 48, 78, .12);
+}
+html[data-theme="light"] #adminPanel > div:first-child {
+  border-bottom-color: rgba(36, 54, 83, .13);
+}
+html[data-theme="light"] #adminPanel h2 {
+  color: #18283f;
+}
+html[data-theme="light"] #adminPanel .kicker {
+  color: #087e83;
+}
+html[data-theme="light"] .admin-status-tools {
+  background: linear-gradient(135deg, rgba(225, 237, 249, .92), rgba(245, 249, 254, .96));
+  border-color: rgba(45, 75, 112, .15);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .9);
+}
+html[data-theme="light"] .admin-status-tools [data-admin-status] {
+  color: #34445d;
+  background: #ffffff;
+  border-color: rgba(43, 65, 98, .16);
+}
+html[data-theme="light"] .admin-status-tools [data-admin-status].primary {
+  color: #073c4b;
+  background: linear-gradient(115deg, #73e8df, #b4a4ff);
+  border-color: transparent;
+}
+html[data-theme="light"] #adminStatusJsonDownload {
+  color: #ffffff;
+  background: linear-gradient(110deg, #783ee0, #c23fa5 55%, #078f99);
+  box-shadow: 0 9px 24px rgba(111, 74, 190, .20);
+}
+html[data-theme="light"] #adminStatusSummary {
+  color: #43536b;
+}
+html[data-theme="light"] #adminPanel > p.muted {
+  color: #53627a;
+}
+html[data-theme="light"] #adminActionMessage {
+  color: #a13b60;
+}
+html[data-theme="light"] #adminRows {
+  background: rgba(255, 255, 255, .92);
+  border-color: rgba(43, 65, 98, .17);
+  box-shadow: 0 8px 24px rgba(31, 48, 78, .06);
+}
+html[data-theme="light"] .admin-transactions-table {
+  color: #26364e;
+}
+html[data-theme="light"] .admin-transactions-table thead th {
+  color: #087e83;
+  background: linear-gradient(180deg, #e8f3f8, #edf3fa);
+  border-bottom-color: rgba(8, 126, 131, .22);
+}
+html[data-theme="light"] .admin-transactions-table tbody td {
+  color: #344259;
+  border-bottom-color: rgba(36, 54, 83, .10);
+  background: transparent;
+}
+html[data-theme="light"] .admin-transactions-table tbody tr:hover td {
+  background: rgba(8, 126, 131, .055);
+}
+html[data-theme="light"] .admin-reference {
+  color: #087e83;
+}
+html[data-theme="light"] .admin-donor-name {
+  color: #1b2940;
+}
+html[data-theme="light"] .admin-donor-email,
+html[data-theme="light"] .admin-currency {
+  color: #68778e;
+}
+html[data-theme="light"] .admin-amount {
+  color: #08734f;
+}
+html[data-theme="light"] .admin-original-amount {
+  color: #344259;
+}
+html[data-theme="light"] .admin-type-pill {
+  color: #6742a7;
+  background: rgba(116, 71, 184, .075);
+  border-color: rgba(116, 71, 184, .20);
+}
+html[data-theme="light"] .admin-status-pill.status-success {
+  color: #126b4d;
+  background: rgba(22, 123, 92, .09);
+  border-color: rgba(22, 123, 92, .24);
+}
+html[data-theme="light"] .admin-status-pill.status-pending {
+  color: #805800;
+  background: rgba(148, 100, 0, .09);
+  border-color: rgba(148, 100, 0, .24);
+}
+html[data-theme="light"] .admin-status-pill.status-failed,
+html[data-theme="light"] .admin-status-pill.status-reversed {
+  color: #a12d53;
+  background: rgba(190, 63, 121, .08);
+  border-color: rgba(190, 63, 121, .22);
+}
+html[data-theme="light"] .admin-date {
+  color: #53627a;
+}
+html[data-theme="light"] .admin-note-cell span {
+  color: #46566e;
+}
+html[data-theme="light"] .admin-note-visibility.is-public {
+  color: #126b4d;
+  background: rgba(22, 123, 92, .08);
+}
+html[data-theme="light"] .admin-note-visibility.is-private {
+  color: #59677d;
+  background: rgba(89, 103, 125, .07);
+}
+html[data-theme="light"] .admin-empty-state {
+  color: #53627a;
+}
+html[data-theme="light"] .admin-empty-state > span {
+  color: #087e83;
+}
+html[data-theme="light"] .admin-empty-state strong {
+  color: #1b2940;
+}
+html[data-theme="light"] .admin-empty-state p {
+  color: #68778e;
+}
