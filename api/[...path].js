@@ -557,6 +557,42 @@ function hasAdminSession(req) {
   }
 }
 
+// Runtime Logs has its own cookie/session namespace while deliberately reusing
+// ADMIN_KEY as the credential, as requested. Domain separation prevents a
+// dz_admin token from being accepted as a dz_logs token.
+function logsSessionSigningKey() {
+  if (!process.env.ADMIN_KEY) throw new Error("ADMIN_KEY is not configured");
+  return createHmac("sha256", process.env.ADMIN_KEY)
+    .update("DEVZIKKY PAY Runtime Logs session v1")
+    .digest();
+}
+
+function createLogsSession() {
+  const expiresAt = Date.now() + 8 * 60 * 60 * 1000;
+  const payload = Buffer.from(JSON.stringify({ expiresAt, scope: "runtime-logs" })).toString("base64url");
+  const signature = createHmac("sha256", logsSessionSigningKey()).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function hasLogsSession(req) {
+  if (!process.env.ADMIN_KEY) return false;
+  const token = String(req.headers.cookie || "").split(";")
+    .map(part => part.trim())
+    .find(part => part.startsWith("dz_logs="))
+    ?.slice("dz_logs=".length);
+  if (!token) return false;
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return false;
+  const expected = createHmac("sha256", logsSessionSigningKey()).update(payload).digest("base64url");
+  if (!safeEqual(signature, expected)) return false;
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return session.scope === "runtime-logs" && Number(session.expiresAt) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
 function hasAutomationKey(req) {
   const authorization = req.headers.authorization || "";
   const supplied = authorization.startsWith("Bearer ")
@@ -668,6 +704,13 @@ async function fetchVercelApi(url, timeoutMs = 18000) {
       throw error;
     }
     return text;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error("Vercel API request timed out");
+      timeoutError.isTimeout = true;
+      throw timeoutError;
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -703,7 +746,7 @@ async function getVercelRuntimeLogs(requestedLimit, requestId, log) {
     const deploymentUrl = new URL("https://api.vercel.com/v7/deployments");
     deploymentUrl.searchParams.set("projectId", projectId);
     deploymentUrl.searchParams.set("target", "production");
-    deploymentUrl.searchParams.set("limit", "3");
+    deploymentUrl.searchParams.set("limit", "1");
     deploymentUrl.searchParams.set("teamId", teamId);
 
     const deploymentsText = await fetchVercelApi(deploymentUrl.toString());
@@ -711,7 +754,7 @@ async function getVercelRuntimeLogs(requestedLimit, requestId, log) {
     const deployments = (Array.isArray(deploymentPayload.deployments) ? deploymentPayload.deployments : [])
       .filter(item => item && (item.uid || item.id) && (!item.target || item.target === "production"))
       .sort((a, b) => Number(b.createdAt || b.created || 0) - Number(a.createdAt || a.created || 0))
-      .slice(0, 3)
+      .slice(0, 1)
       .map(item => ({
         uid: String(item.uid || item.id),
         url: String(item.url || ""),
@@ -730,36 +773,33 @@ async function getVercelRuntimeLogs(requestedLimit, requestId, log) {
       return sendJson(requestId.res, 200, empty, requestId.id);
     }
 
-    const results = await Promise.all(deployments.map(async deployment => {
-      try {
-        const logsUrl = new URL(
-          `https://api.vercel.com/v1/projects/${encodeURIComponent(projectId)}/deployments/${encodeURIComponent(deployment.uid)}/runtime-logs`
-        );
-        logsUrl.searchParams.set("teamId", teamId);
-        logsUrl.searchParams.set("limit", "100");
-        const logsUntil = new Date();
-        const logsSince = new Date(logsUntil.getTime() - 24 * 60 * 60 * 1000);
-        logsUrl.searchParams.set("since", logsSince.toISOString());
-        logsUrl.searchParams.set("until", logsUntil.toISOString());
-        const text = await fetchVercelApi(logsUrl.toString(), 18000);
-        return { deployment, rows: parseVercelRuntimeLogText(text), error: null };
-      } catch (error) {
-        log("warn", "admin.logs.deployment_fetch_failed", {
-          deployment_id: deployment.uid,
-          upstream_status: error.upstreamStatus || null,
-          error_name: error.name || "Error",
-          message: redactLogText(error.message, 300)
-        });
-        return { deployment, rows: [], error };
-      }
-    }));
-
-    if (results.length && results.every(result => Boolean(result.error))) {
-      const firstError = results.find(result => result.error)?.error;
-      const aggregateError = new Error("Vercel runtime logs could not be retrieved from any recent deployment.");
-      aggregateError.upstreamStatus = firstError?.upstreamStatus || null;
-      throw aggregateError;
+    // The selected deployment is the newest production deployment only.
+    // Avoid fan-out requests: older deployments are not scanned automatically.
+    const deployment = deployments[0];
+    let rows = [];
+    try {
+      const logsUrl = new URL(
+        `https://api.vercel.com/v1/projects/${encodeURIComponent(projectId)}/deployments/${encodeURIComponent(deployment.uid)}/runtime-logs`
+      );
+      logsUrl.searchParams.set("teamId", teamId);
+      logsUrl.searchParams.set("limit", String(limit));
+      const logsUntil = new Date();
+      const logsSince = new Date(logsUntil.getTime() - 24 * 60 * 60 * 1000);
+      logsUrl.searchParams.set("since", logsSince.toISOString());
+      logsUrl.searchParams.set("until", logsUntil.toISOString());
+      const text = await fetchVercelApi(logsUrl.toString(), 18000);
+      rows = parseVercelRuntimeLogText(text);
+    } catch (error) {
+      log("warn", "admin.logs.deployment_fetch_failed", {
+        deployment_id: deployment.uid,
+        upstream_status: error.upstreamStatus || null,
+        error_name: error.name || "Error",
+        timed_out: error.isTimeout === true,
+        message: redactLogText(error.message, 300)
+      });
+      throw error;
     }
+    const results = [{ deployment, rows, error: null }];
 
     const normalized = results.flatMap(result => result.rows.map(row => normalizeVercelRuntimeLog(row, result.deployment)));
     const seen = new Set();
@@ -798,10 +838,17 @@ async function getVercelRuntimeLogs(requestedLimit, requestId, log) {
       error_name: error.name || "Error",
       message: redactLogText(error.message, 500)
     });
-    return sendJson(requestId.res, 502, {
-      error: error.upstreamStatus === 401 || error.upstreamStatus === 403
-        ? "Vercel rejected the access token or its project permissions. Check the token and team access."
-        : "Vercel runtime logs could not be loaded. Check the server-side Vercel function logs for details."
+    const status = error.isTimeout ? 504
+      : error.upstreamStatus === 429 ? 503
+      : 502;
+    return sendJson(requestId.res, status, {
+      error: error.isTimeout
+        ? "Vercel runtime log retrieval timed out. Your Logs session is still valid; please refresh shortly."
+        : error.upstreamStatus === 401 || error.upstreamStatus === 403
+          ? "Vercel rejected the access token or its project permissions. Check the token and team access."
+          : error.upstreamStatus === 429
+            ? "Vercel is rate-limiting log requests. Please wait before refreshing."
+            : "Vercel runtime logs could not be loaded. Check the server-side Vercel function logs for details."
     }, requestId.id);
   }
 }
@@ -1140,6 +1187,37 @@ export default async function handler(req, res) {
       return await healthCheck(requestId, res, log);
     }
 
+    // Runtime Logs authentication is independent from the Control Room session.
+    // It reuses ADMIN_KEY but issues and validates only the dz_logs cookie.
+    if (path === "logs/login" && req.method === "POST") {
+      const body = await readBody(req);
+      const supplied = typeof body.key === "string" ? body.key : "";
+      const expected = process.env.ADMIN_KEY || "";
+      if (!expected) {
+        log("error", "logs.login.configuration_error", { missing_environment_variable: "ADMIN_KEY" });
+        return sendJson(res, 503, { error: "Runtime Logs login is not configured" }, requestId);
+      }
+      if (!safeEqual(supplied, expected)) {
+        log("warn", "logs.login.failed", { reason: "invalid_key" });
+        return sendJson(res, 401, { error: "Invalid Admin key" }, requestId);
+      }
+      const token = createLogsSession();
+      res.setHeader("Set-Cookie", `dz_logs=${token}; HttpOnly; Secure; SameSite=Lax; Path=/api; Max-Age=28800`);
+      log("info", "logs.login.succeeded");
+      return sendJson(res, 200, { ok: true, message: "Runtime Logs session created", expires_in: 28800 }, requestId);
+    }
+
+    if (path === "logs/session" && req.method === "GET") {
+      const authenticated = hasLogsSession(req);
+      return sendJson(res, 200, { ok: true, authenticated }, requestId);
+    }
+
+    if (path === "logs/logout" && req.method === "POST") {
+      res.setHeader("Set-Cookie", "dz_logs=; HttpOnly; Secure; SameSite=Lax; Path=/api; Max-Age=0");
+      log("info", "logs.logout");
+      return sendJson(res, 200, { ok: true }, requestId);
+    }
+
     // Admin authentication does not need PostgreSQL. Handle it before creating
     // a database client so the administrator can still sign in during a DB outage.
     if (path === "admin/login" && req.method === "POST") {
@@ -1185,7 +1263,21 @@ export default async function handler(req, res) {
       return sendJson(res, 401, { error: "Unauthorized" }, requestId);
     }
 
-    // Gate every Admin endpoint before Neon initialization or lazy maintenance.
+    // Runtime Logs data is authorized only by its own dz_logs session.
+    // It intentionally does not inherit a Control Room dz_admin session.
+    if (path === "admin/logs") {
+      if (!hasLogsSession(req)) {
+        log("warn", "logs.authorization.denied");
+        return sendJson(res, 401, { error: "Runtime Logs authentication required. Sign in on the Runtime Logs page." }, requestId);
+      }
+      if (req.method !== "GET") {
+        res.setHeader("Allow", "GET");
+        return sendJson(res, 405, { error: "Method not allowed. Use GET." }, requestId);
+      }
+      return await getVercelRuntimeLogs(url.searchParams.get("limit"), { res, id: requestId }, log);
+    }
+
+    // Gate every remaining Admin endpoint before Neon initialization or lazy maintenance.
     // Website Admin access is session-cookie-only; API_KEY is not an Admin credential.
     if (path.startsWith("admin/")) {
       if (!hasAdminSession(req)) {
@@ -1202,13 +1294,6 @@ export default async function handler(req, res) {
         }, requestId);
       }
 
-      if (path === "admin/logs") {
-        if (req.method !== "GET") {
-          res.setHeader("Allow", "GET");
-          return sendJson(res, 405, { error: "Method not allowed. Use GET." }, requestId);
-        }
-        return await getVercelRuntimeLogs(url.searchParams.get("limit"), { res, id: requestId }, log);
-      }
     }
 
     if (path === "payment-limits" && req.method === "GET") {

@@ -924,7 +924,18 @@ async function logsPage() {
   const searchInput = $("#logsSearch");
   let allLogs = [];
   let isLoading = false;
+  const loginSubmit = loginForm.querySelector('button[type="submit"]');
+  if (loginSubmit) loginSubmit.disabled = true;
 
+  const showLogin = message => {
+    logsPanel.classList.add("hidden");
+    loginPanel.classList.remove("hidden");
+    if (message && loginMessage) loginMessage.textContent = message;
+  };
+  const showWorkspace = () => {
+    loginPanel.classList.add("hidden");
+    logsPanel.classList.remove("hidden");
+  };
   const lagosTime = value => {
     const date = new Date(Number(value));
     if (!Number.isFinite(date.getTime())) return "Unknown time";
@@ -957,7 +968,6 @@ async function logsPage() {
       logsList.innerHTML = '<div class="logs-empty-state"><span>◎</span><strong>No matching runtime events</strong><p>Try another severity, status or search term.</p></div>';
       return;
     }
-
     logsList.innerHTML = filtered.map(item => {
       const severity = String(item.level || "info").toLowerCase();
       const statusCode = item.status_code == null ? "—" : String(item.status_code);
@@ -977,7 +987,7 @@ async function logsPage() {
     isLoading = true;
     const refresh = $("#logsRefresh");
     if (refresh) { refresh.disabled = true; refresh.textContent = "Loading…"; }
-    if (statusMessage) statusMessage.textContent = "Requesting the latest available production logs…";
+    if (statusMessage) statusMessage.textContent = "Requesting logs from the latest production deployment…";
     try {
       const data = await api("admin/logs?limit=100");
       allLogs = Array.isArray(data.logs) ? data.logs : [];
@@ -987,26 +997,17 @@ async function logsPage() {
       $("#logsLastRefresh").textContent = new Intl.DateTimeFormat("en-GB", {
         timeZone: "Africa/Lagos", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
       }).format(new Date());
-      if (statusMessage) {
-        statusMessage.textContent = data.partial
-          ? "Some deployments could not be read. Showing the available results; see server logs for details."
-          : `${allLogs.length} runtime entries loaded from ${Number(data.deployments_scanned || 0)} recent production deployments. Maximum 100 entries.`;
-      }
+      if (statusMessage) statusMessage.textContent = `${allLogs.length} runtime entries loaded from the latest production deployment. Maximum 100 entries.`;
       renderLogs();
-      loginPanel.classList.add("hidden");
-      logsPanel.classList.remove("hidden");
+      showWorkspace();
     } catch (error) {
-      if (error.status === 401 || /Admin authentication required/i.test(error.message)) {
-        logsPanel.classList.add("hidden");
-        loginPanel.classList.remove("hidden");
-        if (!quiet && loginMessage) loginMessage.textContent = "Your Admin session has expired. Sign in again.";
+      if (error.status === 401 || /Runtime Logs authentication required/i.test(error.message)) {
+        showLogin("Your Runtime Logs session has expired. Sign in again.");
       } else {
-        // Authentication is valid; keep the private monitor visible so that
-        // configuration/provider errors are not hidden behind the login card.
-        loginPanel.classList.add("hidden");
-        logsPanel.classList.remove("hidden");
+        // Upstream Vercel failures do not invalidate the independent Logs session.
+        showWorkspace();
         if (statusMessage) statusMessage.textContent = error.message;
-        if (logsList) logsList.innerHTML = '<div class="logs-empty-state"><strong>Logs are temporarily unavailable</strong><p>Check the Server integration settings and refresh.</p></div>';
+        if (logsList) logsList.innerHTML = '<div class="logs-empty-state"><strong>Logs are temporarily unavailable</strong><p>Your session is still active. Check the Vercel integration and refresh.</p></div>';
       }
       if (!quiet) console.error("[DEVZIKKY PAY] Server runtime logs failed", { message: error.message });
     } finally {
@@ -1027,12 +1028,14 @@ async function logsPage() {
     event.preventDefault();
     const submit = loginForm.querySelector('button[type="submit"]');
     if (submit) { submit.disabled = true; submit.textContent = "Signing in…"; }
-    if (loginMessage) loginMessage.textContent = "Verifying Admin credentials…";
+    if (loginMessage) loginMessage.textContent = "Verifying Runtime Logs credentials…";
     try {
-      await api("admin/login", { method: "POST", body: JSON.stringify({ key: keyInput.value }) });
+      await api("logs/login", { method: "POST", body: JSON.stringify({ key: keyInput.value }) });
       loginForm.reset();
       if (loginMessage) loginMessage.textContent = "";
-      await loadLogs(false);
+      showWorkspace();
+      // Do not make successful authentication wait for the Vercel Logs API.
+      void loadLogs(false);
     } catch (error) {
       if (loginMessage) loginMessage.textContent = error.message;
     } finally {
@@ -1043,16 +1046,31 @@ async function logsPage() {
   $("#logsRefresh")?.addEventListener("click", () => void loadLogs(false));
   $("#logsLogout")?.addEventListener("click", async () => {
     try {
-      await api("admin/logout", { method: "POST", body: "{}" });
+      await api("logs/logout", { method: "POST", body: "{}" });
       allLogs = [];
-      logsPanel.classList.add("hidden");
-      loginPanel.classList.remove("hidden");
-      if (loginMessage) loginMessage.textContent = "You have been signed out.";
+      showLogin("You have been signed out of Runtime Logs. The Control Room session is unchanged.");
+      if (logsList) logsList.innerHTML = '<div class="logs-empty-state">Sign in to load runtime logs.</div>';
     } catch (error) {
       if (statusMessage) statusMessage.textContent = error.message;
     }
   });
   [levelFilter, statusFilter].forEach(input => input?.addEventListener("change", renderLogs));
   searchInput?.addEventListener("input", renderLogs);
-  await loadLogs(true);
+
+  // Check only the Logs cookie. This endpoint never contacts Vercel.
+  try {
+    const session = await api("logs/session");
+    if (session.authenticated) {
+      showWorkspace();
+      void loadLogs(true);
+    } else {
+      showLogin("");
+    }
+  } catch (error) {
+    showLogin("Could not verify your Runtime Logs session. Please refresh and try again.");
+    if (loginMessage) loginMessage.textContent = error.message;
+  } finally {
+    if (loginSubmit) loginSubmit.disabled = false;
+  }
 }
+

@@ -1,5 +1,5 @@
 // Explicit Vercel function entry point for /api/admin/logs.
-// Runtime log access is protected by the same signed Admin session as the Control Room.
+// Runtime log access is protected by the separate signed Runtime Logs session (dz_logs).
 import handler from "../[...path].js";
 
 export const config = { api: { bodyParser: false } };
