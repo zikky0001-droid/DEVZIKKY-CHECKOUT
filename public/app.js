@@ -27,7 +27,7 @@ function formatLagosDateTime(value) {
 
 /**
  * Centralized browser API client.
- * Logs safe request metadata to DevTools; server-side structured logs appear in Vercel.
+ * Logs safe request metadata to DevTools; server-side structured logs appear in the server environment.
  * Never logs request bodies, passwords, API keys or customer email addresses.
  */
 async function api(path, options = {}) {
@@ -858,7 +858,7 @@ async function adminPage() {
       });
       loginForm.reset();
       const loaded = await showAdmin(false);
-      if (!loaded) throw new Error(message.textContent || "Login succeeded, but the transaction list could not be loaded. Check the request ID and Vercel logs.");
+      if (!loaded) throw new Error(message.textContent || "Login succeeded, but the transaction list could not be loaded. Check the request ID and server logs.");
       if (message) message.textContent = "";
     } catch (error) {
       if (message) message.textContent = error.message;
@@ -1006,9 +1006,9 @@ async function logsPage() {
         loginPanel.classList.add("hidden");
         logsPanel.classList.remove("hidden");
         if (statusMessage) statusMessage.textContent = error.message;
-        if (logsList) logsList.innerHTML = '<div class="logs-empty-state"><strong>Logs are temporarily unavailable</strong><p>Check the Vercel integration settings and refresh.</p></div>';
+        if (logsList) logsList.innerHTML = '<div class="logs-empty-state"><strong>Logs are temporarily unavailable</strong><p>Check the Server integration settings and refresh.</p></div>';
       }
-      if (!quiet) console.error("[DEVZIKKY PAY] Vercel runtime logs failed", { message: error.message });
+      if (!quiet) console.error("[DEVZIKKY PAY] Server runtime logs failed", { message: error.message });
     } finally {
       isLoading = false;
       if (refresh) { refresh.disabled = false; refresh.textContent = "↻ Refresh logs"; }

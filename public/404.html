@@ -1,20 +1,85 @@
 <!doctype html>
 <html lang="en">
-<head><script src="/theme-init.js"></script>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#070910"><meta name="color-scheme" content="light dark">
-<meta name="description" content="The page you requested could not be found. Return to DEVZIKKY PAY to explore the developer story, projects and support information.">
-<meta property="og:title" content="Page Not Found — DEVZIKKY PAY"><meta property="og:description" content="The requested page could not be found. Return to DEVZIKKY PAY to explore projects and developer information.">
-<title>Page Not Found — DEVZIKKY PAY</title>
+<head>
+<script src="/theme-init.js"></script>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#070910"><meta name="color-scheme" content="light dark">
+<meta name="description" content="The requested route could not be found on DEVZIKKY PAY. Check the address or explore the site.">
+<meta property="og:title" content="Route Not Found — DEVZIKKY PAY"><meta property="og:description" content="This route is not registered on DEVZIKKY PAY.">
+<title>Route Not Found — DEVZIKKY PAY</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/loader.css"><link rel="stylesheet" href="/effects.css"><link rel="stylesheet" href="/footer.css">
-<script src="/loader.js" defer></script><script src="/error-monitor.js" defer></script>
-<link rel="stylesheet" href="/theme.css"></head>
+<script src="/loader.js" defer></script><script src="/error-monitor.js" defer></script><link rel="stylesheet" href="/theme.css">
+<style>
+.notfound-page{position:relative;isolation:isolate;overflow:hidden;padding-bottom:clamp(4rem,9vw,7rem)}
+.notfound-page:before,.notfound-page:after{content:"";position:absolute;z-index:-1;pointer-events:none;border-radius:50%;filter:blur(2px)}
+.notfound-page:before{width:420px;height:420px;right:-180px;top:20px;background:radial-gradient(circle,rgba(91,92,246,.20),transparent 68%)}
+.notfound-page:after{width:360px;height:360px;left:-180px;top:420px;background:radial-gradient(circle,rgba(28,210,180,.13),transparent 68%)}
+.notfound-shell{max-width:1040px;margin:0 auto;padding:clamp(2.5rem,7vw,5.5rem) 20px 0}
+.notfound-topline{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted,#9aa3b5);font:600 .72rem "IBM Plex Mono",monospace;letter-spacing:.13em;text-transform:uppercase}
+.notfound-live{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid rgba(245,158,11,.28);border-radius:999px;background:rgba(245,158,11,.08);color:#d99b32;letter-spacing:.07em}
+.notfound-live i{width:7px;height:7px;border-radius:50%;background:#f3ad3d;box-shadow:0 0 12px #f3ad3d}
+.notfound-hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(230px,.85fr);align-items:center;gap:clamp(2rem,6vw,5rem);padding:clamp(2.5rem,7vw,5rem) 0 2.4rem}
+.notfound-code{font:700 clamp(5.5rem,16vw,10.5rem)/.82 "Space Grotesk",sans-serif;letter-spacing:-.095em;background:linear-gradient(120deg,#9b8cff 5%,#55d9cb 55%,#f4bd70 100%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 12px 35px rgba(105,91,245,.15))}
+.notfound-title{font:700 clamp(2rem,5vw,3.8rem)/1.04 "Space Grotesk",sans-serif;letter-spacing:-.055em;margin:1.25rem 0 .9rem}
+.notfound-title span{color:var(--accent,#8e83ff)}
+.notfound-lead{max-width:620px;color:var(--muted,#9aa3b5);font-size:clamp(1rem,1.8vw,1.12rem);line-height:1.8}
+.route-panel{position:relative;padding:22px;border:1px solid rgba(139,130,255,.24);border-radius:22px;background:linear-gradient(145deg,rgba(120,111,255,.10),rgba(22,190,170,.055));box-shadow:0 24px 70px rgba(0,0,0,.16);backdrop-filter:blur(14px)}
+.route-panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px;color:var(--muted,#9aa3b5);font:600 .68rem "IBM Plex Mono",monospace;letter-spacing:.12em;text-transform:uppercase}
+.route-icon{display:grid;place-items:center;width:48px;height:48px;margin-bottom:17px;border:1px solid rgba(145,132,255,.25);border-radius:15px;background:rgba(125,111,255,.12);font-size:1.45rem}
+.route-label{display:block;margin-bottom:8px;color:var(--muted,#9aa3b5);font:600 .68rem "IBM Plex Mono",monospace;letter-spacing:.12em;text-transform:uppercase}
+.route-value{display:block;overflow-wrap:anywhere;padding:13px 14px;border:1px solid rgba(145,150,170,.19);border-radius:12px;background:rgba(5,8,17,.38);color:var(--text,#f4f5fb);font:500 .9rem/1.6 "IBM Plex Mono",monospace}
+.route-status{display:flex;align-items:flex-start;gap:11px;margin-top:16px;color:var(--muted,#9aa3b5);font-size:.86rem;line-height:1.65}
+.route-status strong{color:var(--text,#f4f5fb)}.route-status-icon{flex:0 0 auto}
+.notfound-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:25px}
+.notfound-actions .button{display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.notfound-hints{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:clamp(2.5rem,6vw,4.5rem)}
+.hint-card{padding:19px;border:1px solid var(--border,rgba(145,150,170,.18));border-radius:17px;background:var(--panel,rgba(255,255,255,.025))}
+.hint-card .hint-icon{font-size:1.25rem}.hint-card h3{margin:10px 0 6px;font:650 1rem "Space Grotesk",sans-serif}
+.hint-card p{margin:0;color:var(--muted,#9aa3b5);font-size:.84rem;line-height:1.65}
+.notfound-footnote{margin-top:22px;color:var(--muted,#9aa3b5);font-size:.78rem;line-height:1.7}
+@media(max-width:760px){.notfound-hero{grid-template-columns:1fr;gap:2rem}.route-panel{max-width:560px}.notfound-hints{grid-template-columns:1fr}.notfound-code{font-size:clamp(5.5rem,27vw,9rem)}}
+@media(prefers-reduced-motion:no-preference){.notfound-code{animation:routeFloat 5s ease-in-out infinite}.route-panel{animation:routeRise .7s ease both}@keyframes routeFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}@keyframes routeRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}}
+:root[data-theme="light"] .route-value{background:rgba(255,255,255,.72)}
+:root[data-theme="light"] .hint-card{background:rgba(255,255,255,.65)}
+</style>
+</head>
 <body>
 <div class="dz-loader" id="dzLoader" role="status" aria-live="polite"><div class="loader-core"><div class="loader-emblem"><div class="loader-mark">DZ</div></div><p class="loader-title">DEVZIKKY <span>PAY</span></p><p class="loader-subtitle" data-loader-subtitle>Preparing your DEVZIKKY PAY experience</p><div class="loader-progress"><i data-loader-fill></i></div><div class="loader-meta"><span data-loader-status>INITIALIZING</span><strong data-loader-percent>0%</strong></div><p class="loader-message">BUILD · LEARN · IMPROVE · SHIP</p><button class="loader-skip" data-loader-skip type="button">SKIP INTRO ↗</button></div></div>
-<header class="site-header"><div class="header-inner"><a class="brand" href="/" aria-label="DEVZIKKY PAY home"><span class="brand-mark">DZ</span><span class="brand-copy"><strong>DEVZIKKY PAY</strong><small>IDEAS · TOOLS · PROJECT SUPPORT</small></span></a><nav class="nav-links" data-nav aria-label="Main navigation"><a href="/">Home</a><a href="/about">About</a><a href="/projects">Projects</a><a href="/support">Support</a><a href="/roadmap">Roadmap</a><a href="/statistics">Statistics</a><a href="/faq">FAQ</a><a href="/privacy">Privacy</a><a href="/control-room">Control Room</a><a href="/log">Runtime Logs</a><a href="/api">API docs</a><a class="nav-primary" href="/donate">Donate &amp; Support Us ↗</a></nav><button class="menu-toggle" data-menu-toggle type="button" aria-expanded="false" aria-label="Open navigation">☰</button></div></header>
-<main>
-<section class="page-hero container"><span class="crumb">DEVZIKKY PAY / PAGE NOT FOUND</span><h1>This page is <span class="gradient">off the map.</span></h1><p>The address may have changed, the link may be outdated, or the page may no longer exist. Use the navigation below to continue.</p></section>
-<section class="section"><div class="container"><div class="cta-band reveal"><div><span class="kicker">404 / ROUTE NOT FOUND</span><h2>Nothing is broken on your side.</h2><p>Try the homepage or browse the project directory. If you followed a public link that should work, report it through the portfolio contact details.</p></div><a class="button primary" href="/">Back to homepage ↗</a><a class="button secondary" href="/projects">Browse projects</a></div></div></section>
-</main><div id="siteFooter"></div><button class="back-top" data-back-top type="button" aria-label="Back to top">↑</button><script src="/footer.js" defer></script><script src="/site.js" defer></script><script src="/app.js" defer></script>
+<header class="site-header"><div class="header-inner">
+<a class="brand" href="/" aria-label="DEVZIKKY PAY home"><span class="brand-mark">DZ</span><span class="brand-copy"><strong>DEVZIKKY PAY</strong><small>IDEAS · TOOLS · PROJECT SUPPORT</small></span></a>
+<nav class="nav-links" data-nav aria-label="Main navigation"><a href="/">Home</a><a href="/about">About</a><a href="/projects">Projects</a><a href="/support">Support</a><a href="/roadmap">Roadmap</a><a href="/statistics">Statistics</a><a href="/faq">FAQ</a><a href="/privacy">Privacy</a><a href="/control-room">Control Room</a><a href="/log">Runtime Logs</a><a href="/api">API docs</a><a class="nav-primary" href="/donate">Donate &amp; Support Us ↗</a></nav>
+<button class="menu-toggle" data-menu-toggle type="button" aria-expanded="false" aria-label="Open navigation">☰</button></div></header>
+<main class="notfound-page"><div class="notfound-shell">
+<div class="notfound-topline"><span>DEVZIKKY PAY</span><span>／</span><span>ROUTE DIAGNOSTICS</span><span class="notfound-live"><i></i> 404 · NOT FOUND</span></div>
+<section class="notfound-hero" aria-labelledby="notfoundTitle"><div>
+<div class="notfound-code" aria-hidden="true">404</div>
+<h1 class="notfound-title" id="notfoundTitle">Looks like this page <span>wandered off.</span> 🧭</h1>
+<p class="notfound-lead">We followed the address, checked the route, and… there's nothing here. The page may have moved, the link may be outdated, or this route may never have been registered.</p>
+<div class="notfound-actions"><a class="button primary" href="/">Return home <span aria-hidden="true">↗</span></a><a class="button secondary" href="/projects">Explore projects <span aria-hidden="true">✦</span></a></div>
+</div>
+<aside class="route-panel" aria-label="Unknown route details"><div class="route-panel-head"><span>Route inspection</span><span>⚙️ SYSTEM</span></div>
+<div class="route-icon" aria-hidden="true">🛰️</div><span class="route-label">Requested route</span>
+<code class="route-value" id="unknownRoute">Loading route…</code>
+<div class="route-status"><span class="route-status-icon" aria-hidden="true">⚠️</span><span><strong>Route not registered.</strong><br>The requested path was not found in the DEVZIKKY PAY route registry.</span></div>
+<div class="route-status"><span class="route-status-icon" aria-hidden="true">🔎</span><span>Check the spelling, remove any extra characters, or use one of the navigation links.</span></div></aside></section>
+<section class="notfound-hints" aria-label="What you can do next">
+<article class="hint-card"><span class="hint-icon" aria-hidden="true">🏠</span><h3>Start from the home page</h3><p>Head back to the main page and find your way around from there.</p></article>
+<article class="hint-card"><span class="hint-icon" aria-hidden="true">🧩</span><h3>Explore what is available</h3><p>Browse projects, support information, statistics, and the public API docs.</p></article>
+<article class="hint-card"><span class="hint-icon" aria-hidden="true">📣</span><h3>Report a broken link</h3><p>If you expected this address to work, let the site owner know which route brought you here.</p></article>
+</section>
+<p class="notfound-footnote">Diagnostic note: this is a website-level 404 response. It does not indicate a problem with your device or connection. ✨</p>
+</div></main>
+<div id="siteFooter"></div><button class="back-top" data-back-top type="button" aria-label="Back to top">↑</button>
+<script>
+(() => {
+  const target = document.getElementById('unknownRoute');
+  if (!target) return;
+  let route = window.location.pathname || '/';
+  try { route = decodeURIComponent(route); } catch (_) {}
+  target.textContent = route;
+})();
+</script>
+<script src="/footer.js" defer></script><script src="/site.js" defer></script><script src="/app.js" defer></script>
 </body></html>
