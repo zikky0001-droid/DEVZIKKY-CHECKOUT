@@ -103,6 +103,50 @@
     .api-copy-route, #apiCopyFeedback { transition: none; }
     .api-copy-route:hover { transform: none; }
   }
+
+  .api-code-wrap {
+    position: relative;
+    min-width: 0;
+    margin: 12px 0;
+  }
+  .api-code-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    margin: 0 0 6px;
+  }
+  .api-copy-code {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 6px 10px;
+    border: 1px solid rgba(87, 190, 235, .30);
+    border-radius: 9px;
+    color: #dff7ff;
+    background: rgba(27, 112, 166, .20);
+    font: 650 .72rem/1.2 Inter, sans-serif;
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease, transform .16s ease;
+  }
+  .api-copy-code:hover {
+    background: rgba(27, 139, 183, .36);
+    border-color: rgba(91, 210, 235, .65);
+    transform: translateY(-1px);
+  }
+  .api-copy-code:focus-visible { outline: 3px solid rgba(65, 190, 226, .42); outline-offset: 2px; }
+  .api-copy-code.is-copied { color: #eafff6; background: #087f65; border-color: rgba(78, 220, 176, .55); }
+  .api-copy-code.is-failed { color: #fff0f2; background: #9f3450; border-color: rgba(255, 140, 165, .55); }
+  .api-code-wrap > .code-panel { width: 100%; min-width: 0; margin: 0; }
+  .api-route-copy-row .api-code-wrap { flex: 1 1 280px; min-width: 0; margin: 0; }
+  html[data-theme="light"] .api-copy-code { color: #123b57; background: #e8f5ff; border-color: rgba(35, 105, 160, .25); }
+  html[data-theme="light"] .api-copy-code:hover { color: #082e49; background: #d9efff; border-color: rgba(22, 111, 168, .48); }
+  html[data-theme="light"] .api-copy-code.is-copied { color: #fff; background: #087f65; }
+  html[data-theme="light"] .api-copy-code.is-failed { color: #fff; background: #9f3450; }
+  @media (max-width: 520px) {
+    .api-copy-code { min-height: 38px; padding: 8px 12px; }
+  }
 </style>
 </head><body><div class="dz-loader" id="dzLoader" role="status" aria-live="polite"><div class="loader-core"><div class="loader-emblem"><div class="loader-mark">DZ</div></div><p class="loader-title">DEVZIKKY <span>PAY</span></p><p class="loader-subtitle" data-loader-subtitle>Preparing your DEVZIKKY PAY experience</p><div class="loader-progress"><i data-loader-fill></i></div><div class="loader-meta"><span data-loader-status>INITIALIZING</span><strong data-loader-percent>0%</strong></div><p class="loader-message">BUILD · LEARN · IMPROVE · SHIP</p><button class="loader-skip" data-loader-skip type="button">SKIP INTRO ↗</button></div></div><header class="site-header"><div class="header-inner"><a class="brand" href="/" aria-label="DEVZIKKY PAY home"><span class="brand-mark">DZ</span><span class="brand-copy"><strong>DEVZIKKY PAY</strong><small>IDEAS · TOOLS · PROJECT SUPPORT</small></span></a><nav class="nav-links" data-nav aria-label="Main navigation"><a href="/" >Home</a><a href="/about" >About</a><a href="/projects" >Projects</a><a href="/support" >Support</a><a href="/roadmap" >Roadmap</a><a href="/statistics" >Statistics</a><a href="/faq" >FAQ</a><a href="/privacy" >Privacy</a><a href="/control-room">Control Room</a><a href="/log">Runtime Logs</a><a href="/api" aria-current="page">API docs</a><a class="nav-primary" href="/donate">Donate &amp; Support Us ↗</a></nav><button class="menu-toggle" data-menu-toggle type="button" aria-expanded="false" aria-label="Open navigation">☰</button></div></header>
 <main><section class="page-hero container"><span class="crumb">DEVZIKKY PAY / PUBLIC DEVELOPER REFERENCE</span><h1>Public <span class="gradient">API.</span></h1><p>A reference for public-safe GET endpoints and authenticated server-to-server transaction endpoints. Public routes expose no donor identities or private notes; automation routes require the server-side API key.</p></section><section class="section"><div class="container api-doc-grid"><article class="card reveal"><span class="kicker">SERVICE STATUS</span><div class="api-endpoint-heading"><h2>GET /api/ping</h2><button class="api-copy-route" type="button" data-copy-route="/api/ping" aria-label="Copy /api/ping route">⧉ Copy route</button></div><p>Lightweight liveness check. Does not require a database connection.</p><pre class="code-panel">{
@@ -209,6 +253,55 @@ Content-Type: application/json
     finally { field.remove(); }
     if (!copied) throw new Error("Clipboard access was denied by this browser.");
   }
+
+
+  // Add a dedicated copy control to every API example, including future code panels.
+  document.querySelectorAll("pre.code-panel").forEach((panel, index) => {
+    if (panel.closest(".api-code-wrap")) return;
+    const wrapper = document.createElement("div");
+    wrapper.className = "api-code-wrap";
+    const toolbar = document.createElement("div");
+    toolbar.className = "api-code-toolbar";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "api-copy-code";
+    button.textContent = "⧉ Copy code";
+    button.setAttribute("aria-label", `Copy code example ${index + 1}`);
+    button.dataset.copyCode = "true";
+    toolbar.appendChild(button);
+    panel.parentNode.insertBefore(wrapper, panel);
+    wrapper.appendChild(toolbar);
+    wrapper.appendChild(panel);
+  });
+
+  document.addEventListener("click", async event => {
+    const button = event.target.closest("[data-copy-code]");
+    if (!button) return;
+    const panel = button.closest(".api-code-wrap")?.querySelector("pre.code-panel");
+    if (!panel) return;
+    const originalLabel = button.dataset.originalLabel || button.textContent.trim();
+    button.dataset.originalLabel = originalLabel;
+    button.disabled = true;
+    try {
+      await copyText(panel.textContent.replace(/\n+$/, ""));
+      button.classList.remove("is-failed");
+      button.classList.add("is-copied");
+      button.textContent = "✓ Copied";
+      showFeedback("Code example copied", true);
+    } catch (error) {
+      button.classList.remove("is-copied");
+      button.classList.add("is-failed");
+      button.textContent = "Copy failed";
+      showFeedback("Could not copy this code. Check your browser clipboard permission.", false);
+      console.warn("[DEVZIKKY PAY API docs] Code copy failed:", error?.message || error);
+    } finally {
+      window.setTimeout(() => {
+        button.disabled = false;
+        button.classList.remove("is-copied", "is-failed");
+        button.textContent = originalLabel;
+      }, 1600);
+    }
+  });
 
   document.addEventListener("click", async event => {
     const button = event.target.closest("[data-copy-route]");
