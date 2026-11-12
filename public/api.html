@@ -183,7 +183,7 @@
 <h2>GET /api/health</h2>
 <button class="api-copy-route" type="button" data-copy-route="/api/health" aria-label="Copy /api/health route">⧉ Copy route</button>
 </div>
-<p>Checks database readiness, required schema and configuration presence. Secret values are never returned. Detailed database errors remain in server-side logs.</p>
+<p>Checks database readiness, required schema and configuration presence. Secret values are never returned. Detailed database errors remain in the logs.</p>
 </article>
 
 <article class="card reveal">
@@ -336,7 +336,7 @@ Content-Type: application/json
 
 <article class="card reveal">
 <span class="kicker">🔑 AUTHENTICATION MODEL</span>
-<h2>Keep credentials server-side</h2>
+<h2>Keep credentials private</h2>
 <p>Public GET endpoints do not require a secret key. Both <code>POST /api/automation/initialize</code> and <code>POST /api/automation/verify</code> require the existing <code>API_KEY</code> environment variable as <code>Authorization: Bearer YOUR_API_KEY</code>.</p>
 </article>
 
