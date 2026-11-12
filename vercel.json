@@ -17,6 +17,9 @@
     },
     "api/logs/*.js": {
       "maxDuration": 60
+    },
+    "api/automation/*.js": {
+      "maxDuration": 60
     }
   },
   "headers": [
