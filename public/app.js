@@ -569,21 +569,10 @@ async function statisticsPage() {
   };
   const renderSeries = series => {
     const chart = $("#statsChart");
-    const max = Math.max(1, ...series.map(x => Number(x.total || 0)));
     if (!series.length) {
-      chart.innerHTML = "<p>No transaction activity exists in this selected window.</p>";
       $("#statsSeriesRows").innerHTML = '<tr><td colspan="6">No records found.</td></tr>';
       return;
     }
-    chart.innerHTML = series.map(row => {
-      const total = Number(row.total || 0);
-      const h = Math.max(0, Math.min(100, total / max * 100));
-      const success = Number(row.successful || 0) / Math.max(1, total) * h;
-      const pending = Number(row.pending || 0) / Math.max(1, total) * h;
-      const failed = Number(row.failed || 0) / Math.max(1, total) * h;
-      const label = displayBucket(row.bucket);
-      return `<div class="stats-bar-group" title="${safe(label)} · ${total} transactions"><div class="stats-bar-stack"><i class="stats-bar success" style="height:${success}%"></i><i class="stats-bar pending" style="height:${pending}%"></i><i class="stats-bar failed" style="height:${failed}%"></i></div><span class="stats-bar-label">${safe(label)}</span></div>`;
-    }).join("");
     $("#statsSeriesRows").innerHTML = [...series].reverse().map(row =>
       `<tr><td>${safe(displayBucket(row.bucket))}</td><td>${Number(row.total).toLocaleString()}</td><td>${Number(row.successful).toLocaleString()}</td><td>${Number(row.pending).toLocaleString()}</td><td>${Number(row.failed).toLocaleString()}</td><td>${moneyNgn(row.successful_ngn)}</td></tr>`
     ).join("");
@@ -630,6 +619,7 @@ async function statisticsPage() {
       // Send the same DD/MM/YYYY format shown in the input fields.
       const data = await api(`stats?from=${encodeURIComponent(fromText)}&to=${encodeURIComponent(toText)}&grain=${grain}`);
       lastStats = data;
+      window.dispatchEvent(new CustomEvent("dz:stats-updated", { detail: data }));
       $("#statsTotal").textContent = moneyNgn(data.totals.total_ngn);
       $("#statsSuccessCount").textContent = Number(data.totals.successful || 0).toLocaleString();
       $("#statsPendingCount").textContent = Number(data.totals.pending || 0).toLocaleString();
