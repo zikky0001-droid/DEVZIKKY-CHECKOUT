@@ -148,60 +148,181 @@
     .api-copy-code { min-height: 38px; padding: 8px 12px; }
   }
 </style>
-</head><body><div class="dz-loader" id="dzLoader" role="status" aria-live="polite"><div class="loader-core"><div class="loader-emblem"><div class="loader-mark">DZ</div></div><p class="loader-title">DEVZIKKY <span>PAY</span></p><p class="loader-subtitle" data-loader-subtitle>Preparing your DEVZIKKY PAY experience</p><div class="loader-progress"><i data-loader-fill></i></div><div class="loader-meta"><span data-loader-status>INITIALIZING</span><strong data-loader-percent>0%</strong></div><p class="loader-message">BUILD · LEARN · IMPROVE · SHIP</p><button class="loader-skip" data-loader-skip type="button">SKIP INTRO ↗</button></div></div><header class="site-header"><div class="header-inner"><a class="brand" href="/" aria-label="DEVZIKKY PAY home"><span class="brand-mark">DZ</span><span class="brand-copy"><strong>DEVZIKKY PAY</strong><small>IDEAS · TOOLS · PROJECT SUPPORT</small></span></a><nav class="nav-links" data-nav aria-label="Main navigation"><a href="/" >Home</a><a href="/about" >About</a><a href="/projects" >Projects</a><a href="/support" >Support</a><a href="/roadmap" >Roadmap</a><a href="/statistics" >Statistics</a><a href="/faq" >FAQ</a><a href="/privacy" >Privacy</a><a href="/control-room">Control Room</a><a href="/log">Runtime Logs</a><a href="/api" aria-current="page">API docs</a><a class="nav-primary" href="/donate">Donate &amp; Support Us ↗</a></nav><button class="menu-toggle" data-menu-toggle type="button" aria-expanded="false" aria-label="Open navigation">☰</button></div></header>
-<main><section class="page-hero container"><span class="crumb">DEVZIKKY PAY / PUBLIC DEVELOPER REFERENCE</span><h1>Public <span class="gradient">API.</span></h1><p>A reference for public-safe GET endpoints and authenticated server-to-server transaction endpoints. Public routes expose no donor identities or private notes; automation routes require the server-side API key.</p></section><section class="section"><div class="container api-doc-grid"><article class="card reveal"><span class="kicker">SERVICE STATUS</span><div class="api-endpoint-heading"><h2>GET /api/ping</h2><button class="api-copy-route" type="button" data-copy-route="/api/ping" aria-label="Copy /api/ping route">⧉ Copy route</button></div><p>Lightweight liveness check. Does not require a database connection.</p><pre class="code-panel">{
+
+</head>
+<body>
+<div class="dz-loader" id="dzLoader" role="status" aria-live="polite"><div class="loader-core"><div class="loader-emblem"><div class="loader-mark">DZ</div></div><p class="loader-title">DEVZIKKY <span>PAY</span></p><p class="loader-subtitle" data-loader-subtitle>Preparing your DEVZIKKY PAY experience</p><div class="loader-progress"><i data-loader-fill></i></div><div class="loader-meta"><span data-loader-status>INITIALIZING</span><strong data-loader-percent>0%</strong></div><p class="loader-message">BUILD · LEARN · IMPROVE · SHIP</p><button class="loader-skip" data-loader-skip type="button">SKIP INTRO ↗</button></div></div><header class="site-header"><div class="header-inner"><a class="brand" href="/" aria-label="DEVZIKKY PAY home"><span class="brand-mark">DZ</span><span class="brand-copy"><strong>DEVZIKKY PAY</strong><small>IDEAS · TOOLS · PROJECT SUPPORT</small></span></a><nav class="nav-links" data-nav aria-label="Main navigation"><a href="/">Home</a><a href="/about">About</a><a href="/projects">Projects</a><a href="/support">Support</a><a href="/roadmap">Roadmap</a><a href="/statistics">Statistics</a><a href="/faq">FAQ</a><a href="/privacy">Privacy</a><a href="/control-room">Control Room</a><a href="/log">Runtime Logs</a><a href="/api" aria-current="page">API docs</a><a class="nav-primary" href="/donate">Donate &amp; Support Us ↗</a></nav><button class="menu-toggle" data-menu-toggle type="button" aria-expanded="false" aria-label="Open navigation">☰</button></div></header>
+
+<main>
+<section class="page-hero container">
+<span class="crumb">DEVZIKKY PAY / PUBLIC DEVELOPER REFERENCE</span>
+<h1>Public <span class="gradient">API.</span></h1>
+<p>A reference for public-safe GET endpoints and authenticated server-to-server transaction endpoints. Public routes expose no donor identities or private notes; automation routes require the API key.</p>
+</section>
+
+<section class="section">
+<div class="container api-doc-grid">
+
+<article class="card reveal">
+<span class="kicker">🟢 SERVICE STATUS</span>
+<div class="api-endpoint-heading">
+<h2>GET /api/ping</h2>
+<button class="api-copy-route" type="button" data-copy-route="/api/ping" aria-label="Copy /api/ping route">⧉ Copy route</button>
+</div>
+<p>Lightweight liveness check. Does not require a database connection.</p>
+<pre class="code-panel">{
   "ok": true,
   "status": "alive",
   "service": "DEVZIKKY PAY"
-}</pre></article><article class="card reveal"><span class="kicker">READINESS</span><div class="api-endpoint-heading"><h2>GET /api/health</h2><button class="api-copy-route" type="button" data-copy-route="/api/health" aria-label="Copy /api/health route">⧉ Copy route</button></div><p>Checks database readiness, required schema and configuration presence. Secret values are never returned. Detailed database errors remain in server-side logs.</p></article><article class="card reveal"><span class="kicker">PAYMENT LIMITS</span><div class="api-endpoint-heading"><h2>GET /api/payment-limits</h2><button class="api-copy-route" type="button" data-copy-route="/api/payment-limits" aria-label="Copy /api/payment-limits route">⧉ Copy route</button></div><p>Returns the current configured NGN minimum and maximum transaction amounts, whole-number input policy and checkout toast duration.</p><pre class="code-panel">{
+}</pre>
+</article>
+
+<article class="card reveal">
+<span class="kicker">🩺 READINESS</span>
+<div class="api-endpoint-heading">
+<h2>GET /api/health</h2>
+<button class="api-copy-route" type="button" data-copy-route="/api/health" aria-label="Copy /api/health route">⧉ Copy route</button>
+</div>
+<p>Checks database readiness, required schema and configuration presence. Secret values are never returned. Detailed database errors remain in server-side logs.</p>
+</article>
+
+<article class="card reveal">
+<span class="kicker">💳 PAYMENT LIMITS</span>
+<div class="api-endpoint-heading">
+<h2>GET /api/payment-limits</h2>
+<button class="api-copy-route" type="button" data-copy-route="/api/payment-limits" aria-label="Copy /api/payment-limits route">⧉ Copy route</button>
+</div>
+<p>Returns the current configured NGN minimum and maximum transaction amounts, whole-number input policy and checkout toast duration.</p>
+<pre class="code-panel">{
   "currency": "NGN",
   "minimum_amount_ngn": 100,
   "maximum_amount_ngn": 5000000,
   "whole_numbers_only": true,
   "toast_duration_ms": 5000
-}</pre></article><article class="card reveal"><span class="kicker">EXCHANGE RATES</span><div class="api-endpoint-heading"><h2>GET /api/rates</h2><button class="api-copy-route" type="button" data-copy-route="/api/rates" aria-label="Copy /api/rates route">⧉ Copy route</button></div><p>Returns supported currency units per one Nigerian naira (base=NGN). NGN is represented by <code>base</code> and is not duplicated inside <code>rates</code>.</p><div class="api-route-alias muted small"><span><code>GET /api/rate</code> is a compatibility alias for this endpoint.</span><button class="api-copy-route" type="button" data-copy-route="/api/rate" aria-label="Copy /api/rate compatibility route">⧉ Copy alias</button></div><pre class="code-panel">{
+}</pre>
+</article>
+
+<article class="card reveal">
+<span class="kicker">💱 EXCHANGE RATES</span>
+<div class="api-endpoint-heading">
+<h2>GET /api/rates</h2>
+<button class="api-copy-route" type="button" data-copy-route="/api/rates" aria-label="Copy /api/rates route">⧉ Copy route</button>
+</div>
+<p>Returns supported currency units per one Nigerian naira (base=NGN). NGN is represented by <code>base</code> and is not duplicated inside <code>rates</code>.</p>
+<div class="api-route-alias muted small">
+<span><code>GET /api/rate</code> is a compatibility alias for this endpoint.</span>
+<button class="api-copy-route" type="button" data-copy-route="/api/rate" aria-label="Copy /api/rate compatibility route">⧉ Copy alias</button>
+</div>
+<pre class="code-panel">{
   "base": "NGN",
   "source": "live",
   "rates": {
     "USD": 0.000743,
     "EUR": 0.000663
   }
-}</pre><p class="muted small">Fallback responses may include a snapshot date. These are reference rates, not guaranteed payment quotes.</p></article><article class="card reveal"><span class="kicker">PUBLIC STATISTICS</span><div class="api-endpoint-heading"><h2>GET /api/stats</h2><button class="api-copy-route" type="button" data-copy-route="/api/stats" aria-label="Copy /api/stats route">⧉ Copy route</button></div><p>Aggregated payment totals and time series. Supported query parameters:</p><ul class="endpoint-list"><li><code>from</code> and <code>to</code> — DD/MM/YYYY</li><li><code>grain</code> — day, week, month or year</li><li><code>download=json</code> — return a pretty-printed JSON attachment</li></ul><div class="api-route-copy-row"><pre class="code-panel">GET /api/stats?from=01/11/2026&amp;to=11/11/2026&amp;grain=day</pre><button class="api-copy-route" type="button" data-copy-route="/api/stats?from=01/11/2026&amp;to=11/11/2026&amp;grain=day" aria-label="Copy Statistics example route">⧉ Copy example</button></div></article><article class="card reveal"><span class="kicker">PUBLIC ACTIVITY EXPORT</span><div class="api-endpoint-heading"><h2>GET /api/stats/export</h2><button class="api-copy-route" type="button" data-copy-route="/api/stats/export" aria-label="Copy /api/stats/export route">⧉ Copy route</button></div><p>Returns successful payment references, amounts, types, Lagos timestamps and donor notes only when the donor explicitly opted in. Donor names, email addresses and private notes are excluded.</p><div class="api-route-copy-row"><pre class="code-panel">GET /api/stats/export?from=01/11/2026&amp;to=11/11/2026</pre><button class="api-copy-route" type="button" data-copy-route="/api/stats/export?from=01/11/2026&amp;to=11/11/2026" aria-label="Copy public activity export example route">⧉ Copy example</button></div></article><article class="card reveal"><span class="kicker">SERVER-TO-SERVER TRANSACTIONS</span><div class="api-endpoint-heading"><h2>POST /api/automation/initialize</h2><button class="api-copy-route" type="button" data-copy-route="/api/automation/initialize" aria-label="Copy automation initialize route">⧉ Copy route</button></div><p>Creates a Paystack checkout link for an NGN transaction. Requires the existing <code>API_KEY</code> environment variable in the <code>Authorization: Bearer</code> header. Send JSON; do not put the key in a URL, query parameter, browser code or public repository.</p><p><strong>Required:</strong> <code>amount</code> — whole-number NGN amount from <code>100</code> through <code>5000000</code>, inclusive. Numeric values and digit strings (including correctly grouped values such as <code>"5,000"</code>) are accepted; decimal values are rejected.</p><p><strong>Optional:</strong> <code>name</code> (maximum 20 characters), <code>email</code> (maximum 50 characters), and <code>note</code> (maximum 200 characters). Each must be a string, <code>null</code>, or omitted. An empty/whitespace value or the literal string <code>"null"</code> uses its default: <code>Anonymous</code>, the configured <code>APP_CONFIG.API_EMAIL</code>, or <code>Automation</code>, respectively. Values over the limit or invalid email addresses are rejected rather than truncated.</p><p>Every successful initialization request creates a new <code>transaction</code> with currency <code>NGN</code> and source <code>api</code>. The note is private by default and is never opted into the public activity export by this endpoint. This endpoint does not implement an idempotency key; store the returned reference and do not blindly retry an initialization when the connection drops before you receive its response.</p><pre class="code-panel">curl -X POST "https://devzikkycheckout.myng.net/api/automation/initialize" \
+}</pre>
+<p class="muted small">Fallback responses may include a snapshot date. These are reference rates, not guaranteed payment quotes.</p>
+</article>
+
+<article class="card reveal">
+<span class="kicker">📊 PUBLIC STATISTICS</span>
+<div class="api-endpoint-heading">
+<h2>GET /api/stats</h2>
+<button class="api-copy-route" type="button" data-copy-route="/api/stats" aria-label="Copy /api/stats route">⧉ Copy route</button>
+</div>
+<p>Aggregated payment totals and time series. Supported query parameters:</p>
+<ul class="endpoint-list">
+<li><code>from</code> and <code>to</code> — DD/MM/YYYY</li>
+<li><code>grain</code> — day, week, month or year</li>
+<li><code>download=json</code> — return a pretty-printed JSON attachment</li>
+</ul>
+<div class="api-route-copy-row">
+<pre class="code-panel">GET /api/stats?from=01/11/2026&amp;to=11/11/2026&amp;grain=day</pre>
+<button class="api-copy-route" type="button" data-copy-route="/api/stats?from=01/11/2026&amp;to=11/11/2026&amp;grain=day" aria-label="Copy Statistics example route">⧉ Copy example</button>
+</div>
+</article>
+
+<article class="card reveal">
+<span class="kicker">📤 PUBLIC ACTIVITY EXPORT</span>
+<div class="api-endpoint-heading">
+<h2>GET /api/stats/export</h2>
+<button class="api-copy-route" type="button" data-copy-route="/api/stats/export" aria-label="Copy /api/stats/export route">⧉ Copy route</button>
+</div>
+<p>Returns successful payment references, amounts, types, Lagos timestamps and donor notes only when the donor explicitly opted in. Donor names, email addresses and private notes are excluded.</p>
+<div class="api-route-copy-row">
+<pre class="code-panel">GET /api/stats/export?from=01/11/2026&amp;to=11/11/2026</pre>
+<button class="api-copy-route" type="button" data-copy-route="/api/stats/export?from=01/11/2026&amp;to=11/11/2026" aria-label="Copy public activity export example route">⧉ Copy example</button>
+</div>
+</article>
+
+<article class="card reveal">
+<span class="kicker">🔐 SERVER-TO-SERVER TRANSACTIONS</span>
+<div class="api-endpoint-heading">
+<h2>POST /api/automation/initialize</h2>
+<button class="api-copy-route" type="button" data-copy-route="/api/automation/initialize" aria-label="Copy automation initialize route">⧉ Copy route</button>
+</div>
+<p>Creates a Paystack checkout link for an NGN transaction. Requires the existing <code>API_KEY</code> environment variable in the <code>Authorization: Bearer</code> header.</p>
+<p><strong>Required:</strong> <code>amount</code> — whole-number NGN amount from <code>100</code> through <code>5000000</code>, inclusive. Numeric values and digit strings (including correctly grouped values such as <code>"5,000"</code>) are accepted; decimal values are rejected.</p>
+<p><strong>Optional:</strong> <code>name</code> (maximum 20 characters), <code>email</code> (maximum 50 characters), and <code>note</code> (maximum 200 characters). Each must be a string, <code>null</code>, or omitted. An empty/whitespace value or the literal string <code>"null"</code> uses its default.</p>
+<pre class="code-panel">curl -X POST "https://devzikkycheckout.myng.net/api/automation/initialize" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  --data '{"amount":1000,"name":"Anonymous","email":"billing@example.com","note":"Automation"}'</pre><pre class="code-panel">POST /api/automation/initialize
+  --data '{"amount":1500,"name":"Anonymous","email":"billing@example.com","note":"Automation"}'</pre>
+<pre class="code-panel">POST /api/automation/initialize
 Authorization: Bearer YOUR_API_KEY
 Content-Type: application/json
 
 {
-  "amount": 1000,
+  "amount": 1500,
   "name": "Anonymous",
   "email": "billing@example.com",
   "note": "Automation"
-}</pre><pre class="code-panel">{
+}</pre>
+<pre class="code-panel">{
   "reference": "DZP-...",
   "authorization_url": "https://checkout.paystack.com/...",
   "access_code": "...",
   "currency": "NGN",
-  "amount_ngn": 1000,
+  "amount_ngn": 1500,
   "email": "billing@example.com"
-}</pre></article><article class="card reveal"><span class="kicker">SERVER-TO-SERVER VERIFICATION</span><div class="api-endpoint-heading"><h2>POST /api/automation/verify</h2><button class="api-copy-route" type="button" data-copy-route="/api/automation/verify" aria-label="Copy automation verify route">⧉ Copy route</button></div><p>Verifies a previously created transaction directly with Paystack and returns the server-confirmed state. Uses the same <code>verifyPayment()</code> engine as the website's existing <code>GET /api/pay/verify?reference=...</code> callback, so both paths update the same database record. Requires the same existing <code>API_KEY</code> Bearer authentication.</p><pre class="code-panel">curl -X POST "https://devzikkycheckout.myng.net/api/automation/verify" \
+}</pre>
+</article>
+
+<article class="card reveal">
+<span class="kicker">🔎 SERVER-TO-SERVER VERIFICATION</span>
+<div class="api-endpoint-heading">
+<h2>POST /api/automation/verify</h2>
+<button class="api-copy-route" type="button" data-copy-route="/api/automation/verify" aria-label="Copy automation verify route">⧉ Copy route</button>
+</div>
+<p>Verifies a previously created transaction directly and returns the server-confirmed state.</p>
+<pre class="code-panel">curl -X POST "https://devzikkycheckout.myng.net/api/automation/verify" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  --data '{"reference":"DZP-..."}'</pre><pre class="code-panel">POST /api/automation/verify
+  --data '{"reference":"DZP-..."}'</pre>
+<pre class="code-panel">POST /api/automation/verify
 Authorization: Bearer YOUR_API_KEY
 Content-Type: application/json
 
 {
   "reference": "DZP-..."
-}</pre><p>A processed check returns HTTP <code>200</code> for all known payment states. <code>ok: true</code> means the verification request completed; it does not mean payment succeeded. Only <code>paid: true</code> confirms a verified success. The <code>amount</code> is expressed in naira, not kobo.</p><pre class="code-panel">{
+}</pre>
+<p>A processed check returns HTTP <code>200</code> for all known payment states. <code>ok: true</code> means the verification request completed; it does not mean payment succeeded. Only <code>paid: true</code> confirms a verified success. The <code>amount</code> is expressed in naira, not kobo.</p>
+<pre class="code-panel">{
   "ok": true,
   "reference": "DZP-...",
   "payment_status": "success",
   "paid": true,
-  "amount": 1000,
+  "amount": 1500,
   "currency": "NGN"
-}</pre><p><strong>Possible states:</strong> <code>success</code>, <code>failed</code> or <code>pending</code> (an existing record already marked reversed may return <code>reversed</code>). Paystack processing/unknown states stay pending. A timeout or upstream verification failure returns HTTP <code>503</code> with <code>VERIFICATION_UNAVAILABLE</code>; retry it and do not mark the payment failed. Unknown references return <code>404 TRANSACTION_NOT_FOUND</code>; invalid or missing references return HTTP <code>400</code>. Payment status is established by the server's Paystack verification, not by a status supplied by the caller.</p></article><article class="card reveal"><span class="kicker">PAYMENT AMOUNT RULE</span><h2>Integer amounts only</h2><p>Payment initialization accepts whole-number amounts only. API clients may send an ungrouped integer such as <code>5000</code> or a correctly grouped value such as <code>5,000</code>. Decimal inputs are rejected; the backend independently validates the amount and converted NGN value before Paystack is called. Validation errors use <code>AMOUNT_WHOLE_NUMBER_REQUIRED</code>, <code>AMOUNT_BELOW_MINIMUM</code>, <code>AMOUNT_ABOVE_MAXIMUM</code> or <code>INVALID_AMOUNT_FORMAT</code> as applicable. Minimum and maximum checks apply to the final NGN amount in kobo after currency conversion and rounding.</p><pre class="code-panel">{
+}</pre>
+<p><strong>Possible states:</strong> <code>success</code>, <code>failed</code> or <code>pending</code> (an existing record already marked reversed may return <code>reversed</code>). Paystack processing/unknown states stay pending. A timeout or upstream verification failure returns HTTP <code>503</code> with <code>VERIFICATION_UNAVAILABLE</code>; retry it and do not mark the payment failed. Unknown references return <code>404 TRANSACTION_NOT_FOUND</code>; invalid or missing references return HTTP <code>400</code>. Payment status is established by the server's Paystack verification, not by a status supplied by the caller.</p>
+</article>
+
+<article class="card reveal">
+<span class="kicker">🔢 PAYMENT AMOUNT RULE</span>
+<h2>Integer amounts only</h2>
+<p>Payment initialization accepts whole-number amounts only. API clients may send an ungrouped integer such as <code>5000</code> or a correctly grouped value such as <code>5,000</code>. Decimal inputs are rejected; the backend independently validates the amount and converts to NGN value.</p>
+<pre class="code-panel">{
   "success": false,
   "error": {
     "code": "AMOUNT_WHOLE_NUMBER_REQUIRED",
@@ -210,9 +331,28 @@ Content-Type: application/json
     "minimum_amount_ngn": 100,
     "maximum_amount_ngn": 5000000
   }
-}</pre></article><article class="card reveal"><span class="kicker">AUTHENTICATION MODEL</span><h2>Keep credentials server-side</h2><p>Public GET endpoints do not require a secret key. Both <code>POST /api/automation/initialize</code> and <code>POST /api/automation/verify</code> require the existing <code>API_KEY</code> environment variable as <code>Authorization: Bearer YOUR_API_KEY</code>. No new key or environment variable is introduced. Keep the key only in trusted server-side code and never place it in a query string, URL, browser JavaScript or public repository. <code>ADMIN_KEY</code> remains separate and is used only for the website Control Room and the independent Runtime Logs authentication flow.</p></article><article class="card reveal"><span class="kicker">NOT IN THE PUBLIC CATALOGUE</span><h2>Private and state-changing routes</h2><p>Admin transaction, export and server log endpoints remain restricted to their existing authenticated Admin sessions. The website continues to use <code>GET /api/pay/verify</code>; trusted server-to-server clients can use the authenticated automation verification route documented above. Both share the same server-side verification logic and transaction state.</p><a class="button ghost" href="/control-room">Open Control Room ↗</a></article></div></section></main>
+}</pre>
+</article>
+
+<article class="card reveal">
+<span class="kicker">🔑 AUTHENTICATION MODEL</span>
+<h2>Keep credentials server-side</h2>
+<p>Public GET endpoints do not require a secret key. Both <code>POST /api/automation/initialize</code> and <code>POST /api/automation/verify</code> require the existing <code>API_KEY</code> environment variable as <code>Authorization: Bearer YOUR_API_KEY</code>.</p>
+</article>
+
+<article class="card reveal">
+<span class="kicker">🛡️ NOT IN THE PUBLIC CATALOGUE</span>
+<h2>Private and state-changing routes</h2>
+<p>Admin transaction, export and server log endpoints remain restricted to their existing authenticated Admin sessions.</p>
+<a class="button ghost" href="/control-room">Open Control Room ↗</a>
+</article>
+
+</div>
+</section>
+</main>
 
 <div id="apiCopyFeedback" role="status" aria-live="polite" aria-atomic="true"></div>
+
 <script>
 (() => {
   const feedback = document.getElementById("apiCopyFeedback");
