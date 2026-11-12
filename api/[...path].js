@@ -1038,24 +1038,74 @@ async function initializePayment(db, details, log) {
   }
 }
 
+function verificationError(message, statusCode, code) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  error.apiError = true;
+  return error;
+}
+
+function validPaymentReference(value) {
+  return typeof value === "string" &&
+    /^[A-Za-z0-9._-]{6,100}$/.test(value.trim());
+}
+
 async function verifyPayment(db, reference, log) {
   const existing = await db`
-    SELECT reference, amount_minor, currency, type
+    SELECT reference, amount_minor, currency, type, status
     FROM transactions
     WHERE reference = ${reference}
     LIMIT 1
   `;
   if (!existing.length) {
     log("warn", "payment.verify.unknown_reference", { reference });
-    throw new Error("Payment reference was not found");
+    throw verificationError("Payment reference was not found.", 404, "TRANSACTION_NOT_FOUND");
   }
 
-  const data = await paystackRequest(
-    `/transaction/verify/${encodeURIComponent(reference)}`,
-    null,
-    "GET",
-    log
-  );
+  // A successful state can only be written after server-side Paystack verification.
+  // Reuse that durable result instead of failing an already-paid transaction when
+  // Paystack is temporarily unavailable on a later repeat verification request.
+  if (existing[0].status === "success") {
+    log("info", "payment.verify.already_successful", { reference });
+    return {
+      status: "success",
+      reference,
+      amount: existing[0].amount_minor,
+      currency: existing[0].currency,
+      payment_type: existing[0].type
+    };
+  }
+
+  let data;
+  try {
+    data = await paystackRequest(
+      `/transaction/verify/${encodeURIComponent(reference)}`,
+      null,
+      "GET",
+      log
+    );
+  } catch (error) {
+    // A timeout, network failure, missing provider key or upstream rejection is
+    // not evidence that a transaction failed. Leave its database state unchanged.
+    log("warn", "payment.verify.provider_unavailable", {
+      reference,
+      error_name: error?.name || "Error"
+    });
+    throw verificationError(
+      "Paystack verification is temporarily unavailable. Retry this request.",
+      503,
+      "VERIFICATION_UNAVAILABLE"
+    );
+  }
+
+  if (!data || typeof data !== "object") {
+    throw verificationError(
+      "Paystack returned an invalid verification response. Retry this request.",
+      503,
+      "VERIFICATION_UNAVAILABLE"
+    );
+  }
 
   const expectedAmount = Number(existing[0].amount_minor);
   const receivedAmount = Number(data.amount);
@@ -1067,35 +1117,49 @@ async function verifyPayment(db, reference, log) {
       expected_currency: existing[0].currency,
       amount_match: receivedAmount === expectedAmount
     });
-    throw new Error("Paystack verification details did not match the stored transaction");
+    throw verificationError(
+      "Paystack verification details did not match the stored transaction.",
+      502,
+      "PAYMENT_DETAILS_MISMATCH"
+    );
   }
 
-  const verifiedStatus = data.status === "success"
+  const providerStatus = String(data.status || "").toLowerCase();
+  // Only explicit Paystack failure states are failed. Unknown/processing states
+  // remain pending and are never treated as proof of a failed payment.
+  const verifiedStatus = providerStatus === "success"
     ? "success"
-    : ["failed", "abandoned"].includes(String(data.status).toLowerCase())
+    : ["failed", "abandoned"].includes(providerStatus)
       ? "failed"
       : "pending";
 
-  // A verified success is terminal for this simple checkout state machine:
-  // later delayed/non-success responses must never downgrade it.
-  const status = existing[0].status === "success" ? "success" : verifiedStatus;
-
-  await db`
+  // The SQL expression checks the row's current status at UPDATE time, not only
+  // the earlier SELECT snapshot. A delayed response cannot overwrite a success
+  // committed by a webhook or another concurrent verification request.
+  const updated = await db`
     UPDATE transactions
-    SET status = ${status},
+    SET status = CASE
+          WHEN status IN ('success', 'reversed') THEN status
+          WHEN ${verifiedStatus} = 'success' THEN 'success'
+          ELSE ${verifiedStatus}
+        END,
         paystack_status = CASE
-          WHEN status = 'success' THEN COALESCE(paystack_status, 'success')
-          WHEN ${status} = 'success' THEN 'success'
-          ELSE ${String(data.status)}
+          WHEN status IN ('success', 'reversed') THEN COALESCE(paystack_status, status)
+          WHEN ${verifiedStatus} = 'success' THEN 'success'
+          ELSE ${providerStatus || "pending"}
         END,
         paid_at = CASE
-          WHEN ${status} = 'success' THEN COALESCE(paid_at, NOW())
+          WHEN status = 'success' THEN COALESCE(paid_at, NOW())
+          WHEN status = 'reversed' THEN paid_at
+          WHEN ${verifiedStatus} = 'success' THEN COALESCE(paid_at, NOW())
           ELSE paid_at
         END,
         updated_at = NOW()
     WHERE reference = ${reference}
+    RETURNING status
   `;
 
+  const status = String(updated[0]?.status || existing[0].status || verifiedStatus);
   log(status === "success" ? "info" : "warn", "payment.verify.completed", {
     reference,
     payment_status: status
@@ -1104,6 +1168,7 @@ async function verifyPayment(db, reference, log) {
   return {
     status,
     reference,
+    // Preserve the existing website contract: Paystack amounts are in kobo.
     amount: data.amount,
     currency: data.currency,
     payment_type: existing[0].type
@@ -1321,11 +1386,24 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { ok: true }, requestId);
     }
 
-    // Gate server-to-server automation before Neon initialization or lazy maintenance.
-    // The API key is accepted only for this explicit machine-to-machine route.
-    if (path === "automation/initialize" && req.method === "POST" && !hasAutomationKey(req)) {
-      log("warn", "automation.authentication.failed");
-      return sendJson(res, 401, { error: "Unauthorized" }, requestId);
+    // Both server-to-server transaction routes use the existing API_KEY.
+    // Authenticate and reject incorrect methods before Neon initialization or maintenance.
+    const automationRoutes = ["automation/initialize", "automation/verify"];
+    if (automationRoutes.includes(path)) {
+      if (req.method !== "POST") {
+        res.setHeader("Allow", "POST");
+        return sendJson(res, 405, {
+          ok: false,
+          error: { code: "METHOD_NOT_ALLOWED", message: "Use POST for this endpoint." }
+        }, requestId);
+      }
+      if (!hasAutomationKey(req)) {
+        log("warn", "automation.authentication.failed");
+        return sendJson(res, 401, {
+          ok: false,
+          error: { code: "UNAUTHORIZED", message: "A valid API key is required." }
+        }, requestId);
+      }
     }
 
     // Runtime Logs data is authorized only by its own dz_logs session.
@@ -1504,12 +1582,23 @@ export default async function handler(req, res) {
       if (!reference) {
         return sendJson(res, 400, { error: "Missing payment reference" }, requestId);
       }
-      const result = await verifyPayment(db, reference, log);
+      const normalizedReference = reference.trim();
+      if (!validPaymentReference(normalizedReference)) {
+        return sendJson(res, 400, { error: "Invalid payment reference", code: "INVALID_REFERENCE" }, requestId);
+      }
+      const result = await verifyPayment(db, normalizedReference, log);
       return sendJson(res, 200, result, requestId);
     }
 
     if (path === "automation/initialize" && req.method === "POST") {
       const body = await readBody(req);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return sendJson(res, 400, {
+          ok: false,
+          error: { code: "INVALID_REQUEST_BODY", message: "Send a JSON object in the request body." }
+        }, requestId);
+      }
+
       const parsedAutomationAmount = parseWholeAmount(body.amount);
       if (!parsedAutomationAmount.ok) {
         log("warn", "automation.validation.failed", {
@@ -1527,12 +1616,57 @@ export default async function handler(req, res) {
         });
         return sendJson(res, 400, paymentAmountError(automationRangeError, "NGN"), requestId);
       }
+
+      const optionalAutomationField = (field, fallback, maxLength) => {
+        const value = body[field];
+        if (value === undefined || value === null) return { ok: true, value: fallback };
+        if (typeof value !== "string") return { ok: false, code: "INVALID_FIELD_TYPE" };
+        const normalized = value.trim();
+        if (!normalized || normalized.toLowerCase() === "null") {
+          return { ok: true, value: fallback };
+        }
+        if (normalized.includes("\u0000")) return { ok: false, code: "INVALID_FIELD_VALUE" };
+        if (normalized.length > maxLength) return { ok: false, code: "FIELD_TOO_LONG" };
+        return { ok: true, value: normalized };
+      };
+
+      const automationName = optionalAutomationField("name", "Anonymous", 20);
+      const automationEmail = optionalAutomationField("email", APP_CONFIG.API_EMAIL, 50);
+      const automationNote = optionalAutomationField("note", "Automation", 200);
+      for (const [field, parsed, maxLength] of [
+        ["name", automationName, 20],
+        ["email", automationEmail, 50],
+        ["note", automationNote, 200]
+      ]) {
+        if (!parsed.ok) {
+          const message = parsed.code === "FIELD_TOO_LONG"
+            ? `${field} must be ${maxLength} characters or fewer.`
+            : parsed.code === "INVALID_FIELD_VALUE"
+              ? `${field} contains an unsupported character.`
+              : `${field} must be a string, null, or omitted.`;
+          log("warn", "automation.validation.failed", { field, reason: parsed.code });
+          return sendJson(res, 400, {
+            ok: false,
+            error: { code: parsed.code, message, field, max_length: maxLength }
+          }, requestId);
+        }
+      }
+
+      if (!validEmail(automationEmail.value) || automationEmail.value.length > 50) {
+        log("warn", "automation.validation.failed", { field: "email", reason: "INVALID_EMAIL" });
+        return sendJson(res, 400, {
+          ok: false,
+          error: { code: "INVALID_EMAIL", message: "email must be a valid email address of 50 characters or fewer.", field: "email", max_length: 50 }
+        }, requestId);
+      }
+
       const payment = await initializePayment(db, {
         amountNgn: automationAmount,
-        email: APP_CONFIG.API_EMAIL,
-        name: "Anonymous",
+        email: automationEmail.value,
+        name: automationName.value,
         type: "transaction",
-        note: "Automation",
+        note: automationNote.value,
+        notePublic: false,
         source: "api"
       }, log);
 
@@ -1543,7 +1677,40 @@ export default async function handler(req, res) {
       return sendJson(res, 200, {
         ...payment,
         currency: "NGN",
-        email: APP_CONFIG.API_EMAIL
+        amount_ngn: automationAmount,
+        email: automationEmail.value
+      }, requestId);
+    }
+
+    if (path === "automation/verify" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return sendJson(res, 400, {
+          ok: false,
+          error: { code: "INVALID_REQUEST_BODY", message: "Send a JSON object in the request body." }
+        }, requestId);
+      }
+
+      if (!validPaymentReference(body.reference)) {
+        return sendJson(res, 400, {
+          ok: false,
+          error: {
+            code: body.reference === undefined || body.reference === null || body.reference === ""
+              ? "REFERENCE_REQUIRED" : "INVALID_REFERENCE",
+            message: "Provide a valid payment reference in the reference field."
+          }
+        }, requestId);
+      }
+
+      const reference = body.reference.trim();
+      const result = await verifyPayment(db, reference, log);
+      return sendJson(res, 200, {
+        ok: true,
+        reference: result.reference,
+        payment_status: result.status,
+        paid: result.status === "success",
+        amount: Number(result.amount) / 100,
+        currency: result.currency
       }, requestId);
     }
 
@@ -2018,6 +2185,16 @@ export default async function handler(req, res) {
       message: error.message || "Unknown error",
       stack: status >= 500 ? error.stack : undefined
     });
+    if (error.apiError === true) {
+      return sendJson(res, status, {
+        ok: false,
+        error: {
+          code: error.code || "REQUEST_FAILED",
+          message: error.message || "The request could not be completed."
+        },
+        request_id: requestId
+      }, requestId);
+    }
     return sendJson(res, status, {
       success: false,
       error: status >= 500 ? "Server error. Check Vercel function logs." : error.message,
