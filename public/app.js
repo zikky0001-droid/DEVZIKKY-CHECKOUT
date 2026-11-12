@@ -304,13 +304,14 @@ async function checkoutPage() {
     $("#currencyHint").textContent = code;
 
     if (Number.isSafeInteger(amount) && amount > 0 && Number.isFinite(ngnRate) && ngnRate > 0) {
-      const estimateNgn = code === "NGN" ? amount : amount * ngnRate;
+      const rawEstimateNgn = code === "NGN" ? amount : amount * ngnRate;
+      const estimateNgn = code === "NGN" ? amount : Math.ceil(rawEstimateNgn / 10) * 10;
       const providerLine = code === "NGN"
         ? "NGN is the base currency"
         : `Provider rate: ₦1 = ${providerRate} ${code}`;
       const fallbackDate = rateData.date ? ` · Snapshot date: ${formatIsoDateDmy(rateData.date)}` : "";
       estimate.textContent =
-        `Estimated Paystack charge: ${money(estimateNgn, "NGN")} · ` +
+        `Estimated Paystack charge: ${new Intl.NumberFormat(undefined, { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(estimateNgn)} · ` +
         `${providerLine} · ${rateData.source}${fallbackDate}`;
     } else {
       const fallbackDate = rateData.date ? ` · Snapshot date: ${formatIsoDateDmy(rateData.date)}` : "";

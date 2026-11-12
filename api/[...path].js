@@ -1462,7 +1462,8 @@ export default async function handler(req, res) {
         }, requestId);
       }
 
-      const amountNgn = currencyCode === "NGN" ? amount : amount * ngnRate;
+      const rawAmountNgn = currencyCode === "NGN" ? amount : amount * ngnRate;
+      const amountNgn = currencyCode === "NGN" ? amount : Math.ceil(rawAmountNgn / 10) * 10;
       const rangeError = classifyNgnMinorAmount(amountNgn);
       if (rangeError) {
         log("warn", "checkout.validation.failed", {
@@ -1490,7 +1491,7 @@ export default async function handler(req, res) {
       return sendJson(res, 200, {
         ...payment,
         currency: "NGN",
-        amount_ngn: Math.round(amountNgn * 100) / 100,
+        amount_ngn: amountNgn,
         original_amount: amount,
         original_currency: currencyCode,
         rate_date: rates.rateDate,
