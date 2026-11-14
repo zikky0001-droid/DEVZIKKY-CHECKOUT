@@ -1,5 +1,6 @@
-// One dynamic Vercel function for POST /api/automation/initialize and /verify.
-// API-key authentication, validation, Paystack calls, and verification remain
+// One dynamic Vercel function for the authenticated automation API routes:
+// POST /initialize, POST /verify, and GET /transactions.
+// API-key authentication, validation, Paystack calls, and transaction reporting remain
 // centralized in the existing shared API router.
 import handler from "../[...path].js";
 

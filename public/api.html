@@ -300,11 +300,12 @@
 </div>
 <p>Creates a Paystack checkout link for an NGN transaction. Requires the existing <code>API_KEY</code> environment variable in the <code>Authorization: Bearer</code> header.</p>
 <p><strong>Required:</strong> <code>amount</code> — whole-number NGN amount from <code>100</code> through <code>5000000</code>, inclusive. Numeric values and digit strings (including correctly grouped values such as <code>"5,000"</code>) are accepted; decimal values are rejected.</p>
-<p><strong>Optional:</strong> <code>name</code> (maximum 20 characters), <code>email</code> (maximum 50 characters), and <code>note</code> (maximum 200 characters). Each must be a string, <code>null</code>, or omitted. An empty/whitespace value or the literal string <code>"null"</code> uses its default.</p>
+<p><strong>Optional:</strong> <code>name</code> (maximum 20 characters), <code>email</code> (maximum 50 characters), <code>note</code> (maximum 200 characters), and <code>url</code> (maximum 2,048 characters). Each must be a string, <code>null</code>, or omitted. An empty/whitespace value or the literal string <code>"null"</code> uses its default.</p>
+<p><strong>Callback URL:</strong> When <code>url</code> is supplied, it must be a valid HTTPS URL without embedded credentials or a URL fragment. Paystack redirects the customer to that URL after checkout and appends its transaction reference. DEVZIKKY CHECKOUT does not append its own <code>payment=return</code> parameter to a custom URL. If <code>url</code> is omitted, null, or empty, the existing default callback is used: <code>APP_URL/thank-you?payment=return</code>. The default <code>APP_URL</code> is still required for gateway readiness and fallback payments.</p>
 <pre class="code-panel">curl -X POST "https://devzikkycheckout.myng.net/api/automation/initialize" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  --data '{"amount":1500,"name":"Anonymous","email":"billing@example.com","note":"Automation"}'</pre>
+  --data '{"amount":1500,"name":"Anonymous","email":"billing@example.com","note":"Automation","url":"https://merchant.example.com/payment-complete"}'</pre>
 <pre class="code-panel">POST /api/automation/initialize
 Authorization: Bearer YOUR_API_KEY
 Content-Type: application/json
@@ -313,7 +314,8 @@ Content-Type: application/json
   "amount": 1500,
   "name": "Anonymous",
   "email": "billing@example.com",
-  "note": "Automation"
+  "note": "Automation",
+  "url": "https://merchant.example.com/payment-complete"
 }</pre>
 <pre class="code-panel">{
   "reference": "DZP-...",
@@ -323,6 +325,44 @@ Content-Type: application/json
   "amount_ngn": 1500,
   "email": "billing@example.com"
 }</pre>
+<p>If a custom callback URL is supplied, the customer returns to that destination. If it is omitted, the gateway uses its configured <code>APP_URL</code> fallback.</p>
+</article>
+
+<article class="card reveal">
+<span class="kicker">📊 PRIVATE SERVER-TO-SERVER REPORTING</span>
+<div class="api-endpoint-heading">
+<h2>🔌 GET /api/automation/transactions</h2>
+<button class="api-copy-route" type="button" data-copy-route="/api/automation/transactions" aria-label="Copy automation transactions route">⧉ Copy route</button>
+</div>
+<p>Returns transactions whose private note exactly matches one of the canonical ZCard plan notes. Requires the existing <code>API_KEY</code> bearer token. Customer names and email addresses are not returned.</p>
+<p>Query parameters: <code>page</code> (default 1), <code>limit</code> (default 25, maximum 100), and <code>status</code> (<code>all</code>, <code>success</code>, <code>pending</code>, <code>failed</code>, or <code>reversed</code>).</p>
+<pre class="code-panel">curl "https://devzikkycheckout.myng.net/api/automation/transactions?page=1&amp;limit=25&amp;status=all" \
+  -H "Authorization: Bearer YOUR_API_KEY"</pre>
+<pre class="code-panel">{
+  "ok": true,
+  "source": "DEVZIKKY CHECKOUT",
+  "filter": "ZCARD_NOTE_V1",
+  "page": 1,
+  "limit": 25,
+  "total": 0,
+  "pages": 0,
+  "status_filter": "all",
+  "summary": {
+    "total": 0,
+    "successful": 0,
+    "pending": 0,
+    "failed": 0,
+    "reversed": 0,
+    "successful_revenue_ngn": 0
+  },
+  "transactions": []
+}</pre>
+<p>The feed is read-only and does not create or copy transaction records into the requesting application. ZCard transactions are identified only by these exact private notes:</p>
+<pre class="code-panel">ZCARD|v1|plan=day|days=1|amount_ngn=500
+ZCARD|v1|plan=week|days=7|amount_ngn=3000
+ZCARD|v1|plan=month|days=30|amount_ngn=16500
+ZCARD|v1|plan=quarter|days=90|amount_ngn=28000
+ZCARD|v1|plan=year|days=365|amount_ngn=95600</pre>
 </article>
 
 <article class="card reveal">
@@ -374,7 +414,7 @@ Content-Type: application/json
 <article class="card reveal">
 <span class="kicker">🔑 AUTHENTICATION MODEL</span>
 <h2>🔌 Keep credentials private</h2>
-<p>Public GET endpoints do not require a secret key. Both <code>POST /api/automation/initialize</code> and <code>POST /api/automation/verify</code> require the existing <code>API_KEY</code> environment variable as <code>Authorization: Bearer YOUR_API_KEY</code>.</p>
+<p>Public GET endpoints do not require a secret key. <code>POST /api/automation/initialize</code>, <code>POST /api/automation/verify</code>, and <code>GET /api/automation/transactions</code> require the existing <code>API_KEY</code> environment variable as <code>Authorization: Bearer YOUR_API_KEY</code>. Keep this credential on your server; never expose it in browser code.</p>
 </article>
 
 <article class="card reveal">

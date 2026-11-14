@@ -997,13 +997,19 @@ async function initializePayment(db, details, log) {
 
   try {
     const callbackBase = process.env.APP_URL;
-    if (!callbackBase) throw new Error("APP_URL is not configured");
+    if (!details.callbackUrl && !callbackBase) {
+      throw new Error("APP_URL is not configured");
+    }
+    // A request-specific callback overrides APP_URL for this transaction only.
+    // Keep the legacy gateway thank-you callback as the default behaviour.
+    const callbackUrl = details.callbackUrl ||
+      `${callbackBase.replace(/\/$/, "")}/thank-you?payment=return`;
     const data = await paystackRequest("/transaction/initialize", {
       email: details.email,
       amount: String(amountMinor),
       currency: "NGN",
       reference,
-      callback_url: `${callbackBase.replace(/\/$/, "")}/thank-you?payment=return`,
+      callback_url: callbackUrl,
       metadata: {
         custom_fields: [
           { display_name: "Payment type", variable_name: "payment_type", value: details.type },
@@ -1049,6 +1055,42 @@ function verificationError(message, statusCode, code) {
 function validPaymentReference(value) {
   return typeof value === "string" &&
     /^[A-Za-z0-9._-]{6,100}$/.test(value.trim());
+}
+
+// Optional automation callback destinations are browser redirects, not server
+// fetch targets. Require HTTPS and reject credentials/fragments to avoid
+// ambiguous or misleading redirect destinations.
+function parseAutomationCallbackUrl(value) {
+  if (value === undefined || value === null) {
+    return { ok: true, value: null };
+  }
+  if (typeof value !== "string") {
+    return { ok: false, code: "INVALID_CALLBACK_URL" };
+  }
+
+  const input = value.trim();
+  if (!input || input.toLowerCase() === "null") {
+    return { ok: true, value: null };
+  }
+  if (input.length > 2048 || input.includes("\u0000")) {
+    return { ok: false, code: "INVALID_CALLBACK_URL" };
+  }
+
+  try {
+    const parsed = new URL(input);
+    if (
+      parsed.protocol !== "https:" ||
+      !parsed.hostname ||
+      parsed.username ||
+      parsed.password ||
+      parsed.hash
+    ) {
+      return { ok: false, code: "INVALID_CALLBACK_URL" };
+    }
+    return { ok: true, value: parsed.toString() };
+  } catch {
+    return { ok: false, code: "INVALID_CALLBACK_URL" };
+  }
 }
 
 async function verifyPayment(db, reference, log) {
@@ -1386,15 +1428,16 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { ok: true }, requestId);
     }
 
-    // Both server-to-server transaction routes use the existing API_KEY.
+    // Server-to-server automation routes use the existing API_KEY.
     // Authenticate and reject incorrect methods before Neon initialization or maintenance.
-    const automationRoutes = ["automation/initialize", "automation/verify"];
+    const automationRoutes = ["automation/initialize", "automation/verify", "automation/transactions"];
     if (automationRoutes.includes(path)) {
-      if (req.method !== "POST") {
-        res.setHeader("Allow", "POST");
+      const expectedMethod = path === "automation/transactions" ? "GET" : "POST";
+      if (req.method !== expectedMethod) {
+        res.setHeader("Allow", expectedMethod);
         return sendJson(res, 405, {
           ok: false,
-          error: { code: "METHOD_NOT_ALLOWED", message: "Use POST for this endpoint." }
+          error: { code: "METHOD_NOT_ALLOWED", message: `Use ${expectedMethod} for this endpoint.` }
         }, requestId);
       }
       if (!hasAutomationKey(req)) {
@@ -1633,6 +1676,23 @@ export default async function handler(req, res) {
       const automationName = optionalAutomationField("name", "Anonymous", 20);
       const automationEmail = optionalAutomationField("email", APP_CONFIG.API_EMAIL, 50);
       const automationNote = optionalAutomationField("note", "Automation", 200);
+      const automationCallback = parseAutomationCallbackUrl(body.url);
+      if (!automationCallback.ok) {
+        log("warn", "automation.validation.failed", {
+          field: "url",
+          reason: automationCallback.code
+        });
+        return sendJson(res, 400, {
+          ok: false,
+          error: {
+            code: automationCallback.code,
+            message: "url must be a valid HTTPS callback URL without credentials or a fragment.",
+            field: "url",
+            max_length: 2048
+          }
+        }, requestId);
+      }
+
       for (const [field, parsed, maxLength] of [
         ["name", automationName, 20],
         ["email", automationEmail, 50],
@@ -1667,7 +1727,8 @@ export default async function handler(req, res) {
         type: "transaction",
         note: automationNote.value,
         notePublic: false,
-        source: "api"
+        source: "api",
+        callbackUrl: automationCallback.value
       }, log);
 
       log("info", "automation.payment_link.created", {
@@ -1682,7 +1743,117 @@ export default async function handler(req, res) {
       }, requestId);
     }
 
-    if (path === "automation/verify" && req.method === "POST") {
+if (path === "automation/transactions" && req.method === "GET") {
+      // Private ZCard transaction feed. Notes are matched against the five
+      // canonical plan identifiers and no customer email/name is returned.
+      const pageText = url.searchParams.get("page") || "1";
+      const limitText = url.searchParams.get("limit") || "25";
+      const statusFilter = String(url.searchParams.get("status") || "all").toLowerCase();
+      if (!/^\d+$/.test(pageText) || !/^\d+$/.test(limitText)) {
+        return sendJson(res, 400, { ok: false, error: { code: "INVALID_PAGINATION", message: "Page and limit must be positive integers." } }, requestId);
+      }
+      const page = Number(pageText);
+      const limit = Number(limitText);
+      if (!Number.isSafeInteger(page) || page < 1 || page > 100000 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+        return sendJson(res, 400, { ok: false, error: { code: "INVALID_PAGINATION", message: "Page must be 1–100000 and limit must be 1–100." } }, requestId);
+      }
+      if (!["all", "success", "pending", "failed", "reversed"].includes(statusFilter)) {
+        return sendJson(res, 400, { ok: false, error: { code: "INVALID_STATUS_FILTER", message: "Unsupported transaction status filter." } }, requestId);
+      }
+
+      const summaryRows = await db`
+        SELECT
+          COUNT(*)::integer AS total,
+          COUNT(*) FILTER (WHERE status = 'success')::integer AS successful,
+          COUNT(*) FILTER (WHERE status = 'pending')::integer AS pending,
+          COUNT(*) FILTER (WHERE status = 'failed')::integer AS failed,
+          COUNT(*) FILTER (WHERE status = 'reversed')::integer AS reversed,
+          COALESCE(SUM(amount_minor) FILTER (WHERE status = 'success'), 0)::numeric / 100 AS successful_revenue_ngn
+        FROM transactions
+        WHERE note IN (
+          'ZCARD|v1|plan=day|days=1|amount_ngn=500',
+          'ZCARD|v1|plan=week|days=7|amount_ngn=3000',
+          'ZCARD|v1|plan=month|days=30|amount_ngn=16500',
+          'ZCARD|v1|plan=quarter|days=90|amount_ngn=28000',
+          'ZCARD|v1|plan=year|days=365|amount_ngn=95600'
+        )
+      `;
+      const countRows = await db`
+        SELECT COUNT(*)::integer AS total
+        FROM transactions
+        WHERE note IN (
+          'ZCARD|v1|plan=day|days=1|amount_ngn=500',
+          'ZCARD|v1|plan=week|days=7|amount_ngn=3000',
+          'ZCARD|v1|plan=month|days=30|amount_ngn=16500',
+          'ZCARD|v1|plan=quarter|days=90|amount_ngn=28000',
+          'ZCARD|v1|plan=year|days=365|amount_ngn=95600'
+        )
+        AND (
+          ${statusFilter} = 'all'
+          OR status = ${statusFilter}
+          OR (${statusFilter} = 'failed' AND status = 'reversed')
+        )
+      `;
+      const rows = await db`
+        SELECT reference, amount_minor::numeric / 100 AS amount_ngn,
+          note, status, created_at, paid_at, updated_at
+        FROM transactions
+        WHERE note IN (
+          'ZCARD|v1|plan=day|days=1|amount_ngn=500',
+          'ZCARD|v1|plan=week|days=7|amount_ngn=3000',
+          'ZCARD|v1|plan=month|days=30|amount_ngn=16500',
+          'ZCARD|v1|plan=quarter|days=90|amount_ngn=28000',
+          'ZCARD|v1|plan=year|days=365|amount_ngn=95600'
+        )
+        AND (
+          ${statusFilter} = 'all'
+          OR status = ${statusFilter}
+          OR (${statusFilter} = 'failed' AND status = 'reversed')
+        )
+        ORDER BY created_at DESC, id DESC
+        LIMIT ${limit} OFFSET ${(page - 1) * limit}
+      `;
+      const planByNote = {
+        "ZCARD|v1|plan=day|days=1|amount_ngn=500": { id: "day", title: "Daily Access", days: 1 },
+        "ZCARD|v1|plan=week|days=7|amount_ngn=3000": { id: "week", title: "Weekly Access", days: 7 },
+        "ZCARD|v1|plan=month|days=30|amount_ngn=16500": { id: "month", title: "Monthly Access", days: 30 },
+        "ZCARD|v1|plan=quarter|days=90|amount_ngn=28000": { id: "quarter", title: "Quarterly Access", days: 90 },
+        "ZCARD|v1|plan=year|days=365|amount_ngn=95600": { id: "year", title: "Annual Access", days: 365 }
+      };
+      const total = Number(countRows[0]?.total || 0);
+      const summary = summaryRows[0] || {};
+      log("info", "automation.zcard_transactions.loaded", { count: rows.length, total, page, limit, status: statusFilter });
+      return sendJson(res, 200, {
+        ok: true,
+        source: "DEVZIKKY CHECKOUT",
+        filter: "ZCARD_NOTE_V1",
+        page,
+        limit,
+        total,
+        pages: Math.max(1, Math.ceil(total / limit)),
+        status_filter: statusFilter,
+        summary: {
+          total: Number(summary.total || 0),
+          successful: Number(summary.successful || 0),
+          pending: Number(summary.pending || 0),
+          failed: Number(summary.failed || 0),
+          reversed: Number(summary.reversed || 0),
+          successful_revenue_ngn: Number(summary.successful_revenue_ngn || 0)
+        },
+        transactions: rows.map(row => ({
+          reference: row.reference,
+          amount_ngn: Number(row.amount_ngn || 0),
+          note: row.note,
+          plan: planByNote[row.note],
+          status: row.status,
+          created_at: row.created_at,
+          paid_at: row.paid_at,
+          updated_at: row.updated_at
+        }))
+      }, requestId);
+    }
+
+        if (path === "automation/verify" && req.method === "POST") {
       const body = await readBody(req);
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         return sendJson(res, 400, {
