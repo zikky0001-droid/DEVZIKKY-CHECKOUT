@@ -3,6 +3,32 @@
 (() => {
   const $ = id => document.getElementById(id);
   if (!$('statsChart')) return;
+
+  // Date fields: retain the normal text keyboard and accept only digits and "/".
+  // The 12-character input cap is intentionally separate from the DD/MM/YYYY
+  // format validation performed by the existing statistics filter logic.
+  ['statsFrom', 'statsTo'].forEach(id => {
+    const input = $(id);
+    if (!input) return;
+
+    input.setAttribute('inputmode', 'text');
+    input.setAttribute('maxlength', '12');
+
+    input.addEventListener('input', () => {
+      const cleaned = input.value.replace(/[^0-9/]/g, '').slice(0, 12);
+      if (input.value !== cleaned) {
+        const cursor = input.selectionStart;
+        const removedBeforeCursor = input.value.slice(0, cursor || 0)
+          .replace(/[0-9/]/g, '').length;
+        input.value = cleaned;
+        if (typeof cursor === 'number') {
+          const nextCursor = Math.max(0, cursor - removedBeforeCursor);
+          input.setSelectionRange(nextCursor, nextCursor);
+        }
+      }
+    });
+  });
+
   const palette = { green:'#65f6b5', amber:'#ffd47c', pink:'#ff729c', cyan:'#63f3ff', violet:'#a78bfa', blue:'#5f91ff', magenta:'#fa70d6', muted:'#8d9bb9' };
   const charts = {};
   let latest = null;
