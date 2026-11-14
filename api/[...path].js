@@ -1744,8 +1744,9 @@ export default async function handler(req, res) {
     }
 
 if (path === "automation/transactions" && req.method === "GET") {
-      // Private ZCard transaction feed. Notes are matched against the five
-      // canonical plan identifiers and no customer email/name is returned.
+      // Private ZCard transaction feed. Includes the five canonical fixed plans
+      // and server-calculated custom-duration notes (1–365 days). Restrict to
+      // automation transactions and never return customer email/name.
       const pageText = url.searchParams.get("page") || "1";
       const limitText = url.searchParams.get("limit") || "25";
       const statusFilter = String(url.searchParams.get("status") || "all").toLowerCase();
@@ -1770,24 +1771,52 @@ if (path === "automation/transactions" && req.method === "GET") {
           COUNT(*) FILTER (WHERE status = 'reversed')::integer AS reversed,
           COALESCE(SUM(amount_minor) FILTER (WHERE status = 'success'), 0)::numeric / 100 AS successful_revenue_ngn
         FROM transactions
-        WHERE note IN (
-          'ZCARD|v1|plan=day|days=1|amount_ngn=500',
-          'ZCARD|v1|plan=week|days=7|amount_ngn=3000',
-          'ZCARD|v1|plan=month|days=30|amount_ngn=16500',
-          'ZCARD|v1|plan=quarter|days=90|amount_ngn=28000',
-          'ZCARD|v1|plan=year|days=365|amount_ngn=95600'
-        )
+        WHERE type = 'transaction'
+          AND source = 'api'
+          AND (
+            note IN (
+              'ZCARD|v1|plan=day|days=1|amount_ngn=500',
+              'ZCARD|v1|plan=week|days=7|amount_ngn=3000',
+              'ZCARD|v1|plan=month|days=30|amount_ngn=16500',
+              'ZCARD|v1|plan=quarter|days=90|amount_ngn=28000',
+              'ZCARD|v1|plan=year|days=365|amount_ngn=95600'
+            )
+            OR CASE
+              WHEN note ~ '^ZCARD\\|v1\\|custom\\|days=([1-9][0-9]{0,2})\\|amount_ngn=[1-9][0-9]*$' THEN
+                substring(note from 'days=([0-9]+)')::integer BETWEEN 1 AND 365
+                AND substring(note from 'days=([0-9]+)')::integer NOT IN (1, 7, 30, 90, 365)
+                AND amount_minor = round(
+                  3000::numeric * substring(note from 'days=([0-9]+)')::numeric / 7
+                ) * 100
+                AND split_part(split_part(note, '|', 5), '=', 2)::numeric = amount_minor / 100
+              ELSE FALSE
+            END
+          )
       `;
       const countRows = await db`
         SELECT COUNT(*)::integer AS total
         FROM transactions
-        WHERE note IN (
-          'ZCARD|v1|plan=day|days=1|amount_ngn=500',
-          'ZCARD|v1|plan=week|days=7|amount_ngn=3000',
-          'ZCARD|v1|plan=month|days=30|amount_ngn=16500',
-          'ZCARD|v1|plan=quarter|days=90|amount_ngn=28000',
-          'ZCARD|v1|plan=year|days=365|amount_ngn=95600'
-        )
+        WHERE type = 'transaction'
+          AND source = 'api'
+          AND (
+            note IN (
+              'ZCARD|v1|plan=day|days=1|amount_ngn=500',
+              'ZCARD|v1|plan=week|days=7|amount_ngn=3000',
+              'ZCARD|v1|plan=month|days=30|amount_ngn=16500',
+              'ZCARD|v1|plan=quarter|days=90|amount_ngn=28000',
+              'ZCARD|v1|plan=year|days=365|amount_ngn=95600'
+            )
+            OR CASE
+              WHEN note ~ '^ZCARD\\|v1\\|custom\\|days=([1-9][0-9]{0,2})\\|amount_ngn=[1-9][0-9]*$' THEN
+                substring(note from 'days=([0-9]+)')::integer BETWEEN 1 AND 365
+                AND substring(note from 'days=([0-9]+)')::integer NOT IN (1, 7, 30, 90, 365)
+                AND amount_minor = round(
+                  3000::numeric * substring(note from 'days=([0-9]+)')::numeric / 7
+                ) * 100
+                AND split_part(split_part(note, '|', 5), '=', 2)::numeric = amount_minor / 100
+              ELSE FALSE
+            END
+          )
         AND (
           ${statusFilter} = 'all'
           OR status = ${statusFilter}
@@ -1798,13 +1827,27 @@ if (path === "automation/transactions" && req.method === "GET") {
         SELECT reference, amount_minor::numeric / 100 AS amount_ngn,
           note, status, created_at, paid_at, updated_at
         FROM transactions
-        WHERE note IN (
-          'ZCARD|v1|plan=day|days=1|amount_ngn=500',
-          'ZCARD|v1|plan=week|days=7|amount_ngn=3000',
-          'ZCARD|v1|plan=month|days=30|amount_ngn=16500',
-          'ZCARD|v1|plan=quarter|days=90|amount_ngn=28000',
-          'ZCARD|v1|plan=year|days=365|amount_ngn=95600'
-        )
+        WHERE type = 'transaction'
+          AND source = 'api'
+          AND (
+            note IN (
+              'ZCARD|v1|plan=day|days=1|amount_ngn=500',
+              'ZCARD|v1|plan=week|days=7|amount_ngn=3000',
+              'ZCARD|v1|plan=month|days=30|amount_ngn=16500',
+              'ZCARD|v1|plan=quarter|days=90|amount_ngn=28000',
+              'ZCARD|v1|plan=year|days=365|amount_ngn=95600'
+            )
+            OR CASE
+              WHEN note ~ '^ZCARD\\|v1\\|custom\\|days=([1-9][0-9]{0,2})\\|amount_ngn=[1-9][0-9]*$' THEN
+                substring(note from 'days=([0-9]+)')::integer BETWEEN 1 AND 365
+                AND substring(note from 'days=([0-9]+)')::integer NOT IN (1, 7, 30, 90, 365)
+                AND amount_minor = round(
+                  3000::numeric * substring(note from 'days=([0-9]+)')::numeric / 7
+                ) * 100
+                AND split_part(split_part(note, '|', 5), '=', 2)::numeric = amount_minor / 100
+              ELSE FALSE
+            END
+          )
         AND (
           ${statusFilter} = 'all'
           OR status = ${statusFilter}
@@ -1820,6 +1863,17 @@ if (path === "automation/transactions" && req.method === "GET") {
         "ZCARD|v1|plan=quarter|days=90|amount_ngn=28000": { id: "quarter", title: "Quarterly Access", days: 90 },
         "ZCARD|v1|plan=year|days=365|amount_ngn=95600": { id: "year", title: "Annual Access", days: 365 }
       };
+      function zcardPlanFromNote(note) {
+        if (planByNote[note]) return planByNote[note];
+        const match = /^ZCARD\|v1\|custom\|days=([1-9]\d{0,2})\|amount_ngn=([1-9]\d*)$/.exec(String(note || ""));
+        if (!match) return null;
+        const days = Number(match[1]);
+        const amount = Number(match[2]);
+        if (!Number.isSafeInteger(days) || days < 1 || days > 365 ||
+            [1, 7, 30, 90, 365].includes(days) ||
+            !Number.isSafeInteger(amount) || amount !== Math.round(3000 * days / 7)) return null;
+        return { id: "custom", title: "Custom Access", days };
+      }
       const total = Number(countRows[0]?.total || 0);
       const summary = summaryRows[0] || {};
       log("info", "automation.zcard_transactions.loaded", { count: rows.length, total, page, limit, status: statusFilter });
@@ -1844,7 +1898,7 @@ if (path === "automation/transactions" && req.method === "GET") {
           reference: row.reference,
           amount_ngn: Number(row.amount_ngn || 0),
           note: row.note,
-          plan: planByNote[row.note],
+          plan: zcardPlanFromNote(row.note),
           status: row.status,
           created_at: row.created_at,
           paid_at: row.paid_at,
